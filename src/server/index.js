@@ -10,6 +10,7 @@ import { createTenantRouter } from './routes/tenant.js';
 import { createVoiceCallRouter } from './routes/voice-call.js';
 import { createTranscriptionRouter } from './routes/transcription.js';
 import { createVoicemailRouter } from './routes/voicemail.js';
+import { createSetupRouter } from './routes/setup.js';
 
 dotenv.config();
 
@@ -30,10 +31,14 @@ app.use('/api', createTenantRouter(scrt2Client));
 app.use('/api', createVoiceCallRouter(scrt2Client));
 app.use('/api', createTranscriptionRouter(scrt2Client));
 app.use('/api', createVoicemailRouter(scrt2Client));
+app.use('/api', createSetupRouter(scrt2Client));
 
 const distPath = path.resolve(__dirname, '../../dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
+  app.get('/setup', (req, res) => {
+    res.sendFile(path.join(distPath, 'setup.html'));
+  });
   app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
       res.sendFile(path.join(distPath, 'index.html'));
