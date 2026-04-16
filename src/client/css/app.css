@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --color-sf-blue: #0176D3;
+  --color-sf-navy: #014486;
+  --color-sf-navy-deep: #032D60;
+  --color-sf-sky: #00A1E0;
+  --color-sf-orange: #FE9339;
+  --color-sf-orange-dark: #C86B1A;
+  --color-sf-success: #2E844A;
+  --color-sf-error: #BA0517;
+  --color-panel-bg: #111827;
+  --color-panel-main: #0d1117;
+  --font-sans: 'Manrope', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Pulse animation for connection status */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.status-pulse {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Message bubble animations */
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.message-bubble {
+  animation: slide-in 0.2s ease-out;
+}
+
+/* Toast notification */
+@keyframes toast-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes toast-out {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+.toast-enter { animation: toast-in 0.3s ease-out; }
+.toast-exit { animation: toast-out 0.3s ease-in; }

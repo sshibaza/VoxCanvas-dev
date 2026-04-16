@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoxCanvas — Partner Telephony Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body class="bg-panel-main text-white font-sans min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header id="header" class="bg-gradient-to-r from-sf-navy-deep via-sf-blue to-sf-sky px-5 py-3 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-3">
+      <h1 class="text-lg font-extrabold tracking-tight">VoxCanvas</h1>
+      <span class="text-xs opacity-50 bg-white/10 px-2 py-0.5 rounded-full">v2.0</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <div id="connection-status" class="flex items-center gap-2">
+        <span id="status-dot" class="w-2 h-2 rounded-full bg-sf-error"></span>
+        <span id="status-text" class="text-xs opacity-70">Disconnected</span>
+      </div>
+      <span id="org-alias" class="text-xs opacity-50"></span>
+    </div>
+  </header>
+
+  <!-- Main 3-column layout -->
+  <main class="flex flex-1 overflow-hidden">
+    <aside id="call-control-panel" class="w-60 bg-panel-bg border-r border-white/[0.08] flex flex-col shrink-0">
+    </aside>
+    <section id="conversation-panel" class="flex-1 flex flex-col min-w-0">
+    </section>
+    <aside id="tools-panel" class="w-52 bg-panel-bg border-l border-white/[0.08] flex flex-col shrink-0">
+    </aside>
+  </main>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed top-4 right-4 flex flex-col gap-2 z-50"></div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
