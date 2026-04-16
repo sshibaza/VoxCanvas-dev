@@ -1,7 +1,5 @@
-import { showToast } from './ui-utils.js';
+import { showToast, addLogEntry } from './ui-utils.js';
 import { getActiveCall } from './call-control.js';
-
-let logEntries = [];
 
 export function initTools(api) {
   const panel = document.getElementById('tools-panel');
@@ -14,18 +12,14 @@ export function initTools(api) {
         <div class="text-xs font-semibold mb-2 flex items-center gap-1.5">
           <span>&#127908;</span> Call Recording
         </div>
-        <div id="drop-zone"
-          class="border border-dashed border-white/15 rounded-md py-4 px-2 text-center mb-2 transition-colors hover:border-sf-blue/40 cursor-pointer">
-          <div class="text-[0.55rem] opacity-40">Drop audio file here</div>
-          <div class="text-[0.5rem] opacity-30">or click to browse</div>
-          <input id="recording-file" type="file" accept="audio/*" class="hidden" />
+        <div class="text-[0.55rem] opacity-50 mb-2 leading-relaxed">
+          Paste a publicly-accessible recording URL (S3 presigned, etc.) and attach it to the active call.
         </div>
-        <div id="recording-filename" class="text-[0.5rem] opacity-50 mb-2 hidden"></div>
-        <input id="recording-url" type="text" placeholder="or paste recording URL"
+        <input id="recording-url" type="text" placeholder="https://..."
           class="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-[0.55rem] mb-2 focus:border-sf-blue focus:outline-none" />
         <button id="btn-upload-recording"
           class="w-full bg-sf-blue/20 border border-sf-blue/30 py-1.5 rounded text-[0.55rem] font-semibold hover:bg-sf-blue/30 transition-colors">
-          Upload Recording
+          Attach Recording
         </button>
       </div>
 
@@ -79,32 +73,6 @@ export function initTools(api) {
     </div>
   `;
 
-  // Drop zone
-  const dropZone = document.getElementById('drop-zone');
-  const fileInput = document.getElementById('recording-file');
-
-  dropZone.addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('border-sf-blue/40', 'bg-sf-blue/5');
-  });
-  dropZone.addEventListener('dragleave', () => {
-    dropZone.classList.remove('border-sf-blue/40', 'bg-sf-blue/5');
-  });
-  dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('border-sf-blue/40', 'bg-sf-blue/5');
-    if (e.dataTransfer.files.length) {
-      fileInput.files = e.dataTransfer.files;
-      showSelectedFile(e.dataTransfer.files[0].name);
-    }
-  });
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files.length) {
-      showSelectedFile(fileInput.files[0].name);
-    }
-  });
-
   // Upload recording
   document.getElementById('btn-upload-recording').addEventListener('click', async () => {
     const call = getActiveCall();
@@ -156,32 +124,4 @@ export function initTools(api) {
   document.getElementById('btn-close-log').addEventListener('click', () => {
     document.getElementById('log-drawer').classList.add('hidden');
   });
-}
-
-function showSelectedFile(name) {
-  const el = document.getElementById('recording-filename');
-  el.textContent = `Selected: ${name}`;
-  el.classList.remove('hidden');
-}
-
-export function addLogEntry(message, type = 'info') {
-  const container = document.getElementById('log-entries');
-  if (!container) return;
-
-  const colors = {
-    info: 'text-white/60',
-    success: 'text-sf-success',
-    error: 'text-sf-error',
-    warning: 'text-sf-orange',
-  };
-
-  const entry = document.createElement('div');
-  entry.className = `${colors[type] || colors.info} border-b border-white/5 pb-1`;
-
-  const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
-  entry.innerHTML = `<span class="opacity-40">[${time}]</span> ${message}`;
-  container.appendChild(entry);
-  container.scrollTop = container.scrollHeight;
-
-  logEntries.push({ time, message, type });
 }

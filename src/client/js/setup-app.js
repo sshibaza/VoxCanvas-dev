@@ -89,13 +89,13 @@ function renderStep() {
 
     case 'connected-app':
       container.innerHTML = `
-        <h2 class="text-lg font-bold mb-4">Connected App Configuration</h2>
+        <h2 class="text-lg font-bold mb-4">Connected App &amp; Tenant Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
           In your Salesforce org:<br>
           1. Setup &rarr; App Manager &rarr; New Connected App<br>
           2. Enable OAuth, select scopes: <code class="bg-white/10 px-1 rounded text-xs">api</code>, <code class="bg-white/10 px-1 rounded text-xs">refresh_token</code><br>
           3. Upload the <a href="/api/setup/certificate/download" class="underline text-sf-blue">jwt.pem</a> certificate<br>
-          4. Copy the Consumer Key below
+          4. Fill the Connected App and tenant fields below
         </div>
         <div class="space-y-3 mb-6">
           <div>
@@ -116,6 +116,33 @@ function renderStep() {
             </div>
             <input id="setup-login-url" type="hidden" value="https://login.salesforce.com" />
           </div>
+          <div class="border-t border-white/[0.06] pt-3 mt-4">
+            <div class="text-xs font-semibold opacity-70 mb-2">Tenant / Contact Center</div>
+            <div class="text-[0.65rem] opacity-40 mb-2 leading-relaxed">
+              Find SCRT Base URL in Setup &rarr; Service Cloud Voice &rarr; Partner Telephony.
+              Org ID is in Setup &rarr; Company Information.
+            </div>
+          </div>
+          <div>
+            <label class="text-xs opacity-50 mb-1 block">SCRT2 Base URL</label>
+            <input id="setup-scrt-base-url" type="text" placeholder="https://xxx.my.salesforce-scrt.com"
+              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
+          </div>
+          <div>
+            <label class="text-xs opacity-50 mb-1 block">Salesforce Org ID</label>
+            <input id="setup-org-id" type="text" placeholder="00D..."
+              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
+          </div>
+          <div>
+            <label class="text-xs opacity-50 mb-1 block">Call Center API Name</label>
+            <input id="setup-call-center-api-name" type="text" placeholder="VoxCanvas_CallCenter"
+              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
+          </div>
+          <div>
+            <label class="text-xs opacity-50 mb-1 block">Call Center Phone (optional)</label>
+            <input id="setup-call-center-phone" type="text" placeholder="0120-000-000"
+              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm focus:border-sf-blue focus:outline-none" />
+          </div>
         </div>
         <div class="flex justify-between">
           <button onclick="prevStep()" class="opacity-50 hover:opacity-100 text-sm transition-colors">&larr; Back</button>
@@ -127,8 +154,34 @@ function renderStep() {
           document.querySelectorAll('.login-url-btn').forEach((b) => (b.className = 'login-url-btn bg-white/10 px-3 py-1.5 rounded text-xs font-medium'));
           btn.className = 'login-url-btn bg-sf-blue/30 px-3 py-1.5 rounded text-xs font-medium';
           document.getElementById('setup-login-url').value = btn.dataset.url;
+          state.loginUrl = btn.dataset.url;
         });
       });
+
+      // Restore previously-entered values if the user navigates back.
+      const setIfPresent = (id, value) => {
+        const el = document.getElementById(id);
+        if (el && value) el.value = value;
+      };
+      setIfPresent('setup-consumer-key', state.consumerKey);
+      setIfPresent('setup-username', state.username);
+      setIfPresent('setup-scrt-base-url', state.scrtBaseUrl);
+      setIfPresent('setup-org-id', state.orgId);
+      setIfPresent('setup-call-center-api-name', state.callCenterApiName);
+      setIfPresent('setup-call-center-phone', state.callCenterPhone);
+
+      // Capture each field into `state` so it survives re-renders.
+      const bind = (id, key) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', () => { state[key] = el.value.trim(); });
+      };
+      bind('setup-consumer-key', 'consumerKey');
+      bind('setup-username', 'username');
+      bind('setup-scrt-base-url', 'scrtBaseUrl');
+      bind('setup-org-id', 'orgId');
+      bind('setup-call-center-api-name', 'callCenterApiName');
+      bind('setup-call-center-phone', 'callCenterPhone');
       break;
 
     case 'test':
@@ -148,14 +201,27 @@ function renderStep() {
         resultsDiv.classList.remove('hidden');
         resultsDiv.innerHTML = '<div class="text-sm opacity-50">Saving configuration...</div>';
 
-        const consumerKey = document.getElementById('setup-consumer-key')?.value || state.consumerKey || '';
-        const username = document.getElementById('setup-username')?.value || state.username || '';
-        const loginUrl = document.getElementById('setup-login-url')?.value || 'https://login.salesforce.com';
+        const consumerKey = state.consumerKey || '';
+        const username = state.username || '';
+        const loginUrl = state.loginUrl || 'https://login.salesforce.com';
+        const scrtBaseUrl = state.scrtBaseUrl || '';
+        const orgId = state.orgId || '';
+        const callCenterApiName = state.callCenterApiName || '';
+        const callCenterPhone = state.callCenterPhone || '';
+
+        if (!consumerKey || !username || !scrtBaseUrl || !orgId || !callCenterApiName) {
+          resultsDiv.innerHTML =
+            '<div class="text-sm text-sf-error">&#10007; Go back and fill in all required fields.</div>';
+          return;
+        }
 
         const saveResult = await fetch('/api/setup/complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ consumerKey, username, loginUrl }),
+          body: JSON.stringify({
+            consumerKey, username, loginUrl,
+            scrtBaseUrl, orgId, callCenterApiName, callCenterPhone,
+          }),
         }).then((r) => r.json());
 
         if (saveResult.success) {

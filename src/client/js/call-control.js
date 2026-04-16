@@ -1,4 +1,4 @@
-import { showToast, formatDuration } from './ui-utils.js';
+import { showToast, formatDuration, addLogEntry } from './ui-utils.js';
 
 let activeCall = null;
 let timerInterval = null;
@@ -93,8 +93,10 @@ export function initCallControl(api) {
       });
       activeCall = result;
       onCallStarted(result);
+      addLogEntry(`Call started (${selectedType}) vendorCallKey=${result.vendorCallKey}`, 'success');
       showToast('Call started successfully', 'success');
     } catch (err) {
+      addLogEntry(`Start call failed: ${err.message}`, 'error');
       showToast(`Failed to start call: ${err.message}`, 'error');
     }
   });
@@ -108,9 +110,11 @@ export function initCallControl(api) {
         isActiveCall: false,
         endTime: new Date().toISOString(),
       });
+      addLogEntry(`Call ended vendorCallKey=${activeCall.vendorCallKey}`, 'info');
       onCallEnded();
       showToast('Call ended', 'info');
     } catch (err) {
+      addLogEntry(`End call failed: ${err.message}`, 'error');
       showToast(`Failed to end call: ${err.message}`, 'error');
     }
   });

@@ -12,7 +12,7 @@ npm run init      # Generate certificates
 npm run dev       # Start development server
 ```
 
-Open `http://localhost:5173` for the dashboard.
+Open `http://127.0.0.1:5173` for the dashboard (dev mode) or `https://127.0.0.1:3030` after `npm run build && npm start` (production).
 
 ## Setup
 
@@ -60,22 +60,23 @@ npm run build && npm start  # Production
 
 ## Demo Flow
 
-1. Open VoxCanvas Dashboard (`https://127.0.0.1:3030`)
+1. Open VoxCanvas Dashboard (`http://127.0.0.1:5173` in dev, or `https://127.0.0.1:3030` for production)
 2. In Salesforce: Omni-Channel → Set status to "Available for Phone"
 3. VoxCanvas: Select Inbound/Outbound → Enter phone numbers → **Start Call**
 4. Salesforce: Accept the incoming call
-5. VoxCanvas: Type in Customer panel (left) and Agent panel (right)
+5. VoxCanvas: Type in Customer panel (left) and Agent panel (right) — press Enter to send
 6. Watch messages appear in Salesforce Enhanced Conversation
-7. (Optional) Upload recording or send voicemail from Tools panel
+7. (Optional) Attach a recording URL or send voicemail from Tools panel
 8. **End Call** to finish
 
 ## Important Notes
 
-- Use `127.0.0.1` not `localhost` (CORS requirement)
-- Accept the self-signed certificate warning on first visit
+- Use `127.0.0.1` (not `localhost`) when adding the callback/CORS origin on the Salesforce side — the Connected App and SCRT2 CORS allowlist expect an explicit host
+- Accept the self-signed certificate warning on first visit to the Node HTTPS server
 - Permission set names use "Partner Telephony" not "BYOT"
 - Contact Center XML must be deployed via Metadata API, not UI wizard
 - Metadata type is `ConversationVendorInfo` (not `ConversationVendorInformation`)
+- The Setup Wizard endpoints (`/api/setup/*`) only respond to loopback (127.0.0.1) by design
 
 ## Tech Stack
 

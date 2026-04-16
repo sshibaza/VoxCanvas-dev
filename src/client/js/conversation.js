@@ -1,4 +1,4 @@
-import { showToast, formatTime } from './ui-utils.js';
+import { showToast, formatTime, addLogEntry } from './ui-utils.js';
 
 let messages = [];
 let currentCall = null;
@@ -106,31 +106,32 @@ function setupSendHandler(role, senderType, api) {
         content: text,
         senderType,
       });
+      addLogEntry(`Transcription ${senderType}: ${text}`, 'info');
     } catch (err) {
+      addLogEntry(`Transcription failed (${senderType}): ${err.message}`, 'error');
       showToast(`Transcription failed: ${err.message}`, 'error');
     }
   };
 
-  // Wait for DOM to render before attaching events
-  setTimeout(() => {
-    const input = document.getElementById(`${role}-input`);
-    const sendBtn = document.getElementById(`${role}-send`);
+  const input = document.getElementById(`${role}-input`);
+  const sendBtn = document.getElementById(`${role}-send`);
 
-    sendBtn.addEventListener('click', sendMessage);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-        sendMessage();
-      }
-    });
+  sendBtn.addEventListener('click', sendMessage);
+  input.addEventListener('keydown', (e) => {
+    // Plain Enter sends; Shift+Enter is reserved for future multiline inputs.
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
 
-    // Quick phrases
-    document.querySelectorAll(`.quick-phrase[data-role="${role}"]`).forEach((btn) => {
-      btn.addEventListener('click', () => {
-        input.value = btn.textContent;
-        input.focus();
-      });
+  // Quick phrases
+  document.querySelectorAll(`.quick-phrase[data-role="${role}"]`).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      input.value = btn.textContent;
+      input.focus();
     });
-  }, 0);
+  });
 }
 
 function renderMessage(msg) {

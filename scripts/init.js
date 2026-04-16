@@ -30,6 +30,7 @@ function generateServerCert() {
       `-days 365 -nodes -subj "/CN=VoxCanvas Local Dev"`,
     { stdio: 'inherit' }
   );
+  fs.chmodSync(keyFile, 0o600);
   log(`Created ${certFile} and ${keyFile}`);
 }
 
@@ -49,6 +50,7 @@ function generateJwtKeyPair() {
       `-days 365 -subj "/CN=VoxCanvas JWT"`,
     { stdio: 'inherit' }
   );
+  fs.chmodSync(keyFile, 0o600);
   log(`Created ${keyFile} (private) and ${certFile} (upload to Salesforce Connected App)`);
 }
 
@@ -70,6 +72,7 @@ function createEnvIfMissing() {
   }
   if (fs.existsSync('.env.example')) {
     fs.copyFileSync('.env.example', '.env');
+    fs.chmodSync('.env', 0o600);
     log('Created .env from .env.example — fill in your Salesforce credentials.');
   }
 }

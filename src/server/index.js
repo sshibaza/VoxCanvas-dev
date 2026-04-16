@@ -18,6 +18,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
 
+// Server binds to 127.0.0.1 by default; this just makes req.ip honor that
+// when running behind Vite's dev proxy (still loopback-only).
+app.set('trust proxy', 'loopback');
+
 const scrt2Client = new Scrt2Client({
   scrtBaseUrl: process.env.SF_SCRT_BASE_URL || '',
   orgId: process.env.SF_ORG_ID || '',
@@ -33,6 +37,13 @@ app.use('/api', createTranscriptionRouter(scrt2Client));
 app.use('/api', createVoicemailRouter(scrt2Client));
 app.use('/api', createSetupRouter(scrt2Client));
 
+// Any /api/* path that nothing matched above is a 404. Without this,
+// Express 5's catch-all below would either hang (no response) or return
+// the SPA HTML for an API call.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: true, code: 'NOT_FOUND', path: req.originalUrl });
+});
+
 const distPath = path.resolve(__dirname, '../../dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
@@ -40,9 +51,7 @@ if (fs.existsSync(distPath)) {
     res.sendFile(path.join(distPath, 'setup.html'));
   });
   app.get('{*path}', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(path.join(distPath, 'index.html'));
-    }
+    res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
