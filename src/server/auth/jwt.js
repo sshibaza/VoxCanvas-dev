@@ -10,10 +10,13 @@ const REFRESH_MARGIN_SECONDS = 5 * 60; // refresh 5 min before expiry
 
 export function generateToken(orgId, callCenterApiName, privateKeyPath) {
   const privateKey = fs.readFileSync(path.resolve(privateKeyPath));
+  // Backdate `nbf` by 30s so minor clock drift between this host and
+  // Salesforce doesn't trigger `invalid_grant: not yet valid`.
   const signOptions = {
     issuer: orgId,
     subject: callCenterApiName,
     expiresIn: `${TOKEN_LIFETIME_SECONDS}s`,
+    notBefore: '-30s',
     algorithm: 'RS256',
   };
   const token = jwt.sign({}, privateKey, signOptions);

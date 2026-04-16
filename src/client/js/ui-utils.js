@@ -34,3 +34,28 @@ export function formatDuration(seconds) {
   const s = (seconds % 60).toString().padStart(2, '0');
   return `${m}:${s}`;
 }
+
+export function addLogEntry(message, type = 'info') {
+  const container = document.getElementById('log-entries');
+  if (!container) return;
+
+  const colors = {
+    info: 'text-white/60',
+    success: 'text-sf-success',
+    error: 'text-sf-error',
+    warning: 'text-sf-orange',
+  };
+
+  const entry = document.createElement('div');
+  entry.className = `${colors[type] || colors.info} border-b border-white/5 pb-1`;
+  const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+  entry.innerHTML = `<span class="opacity-40">[${time}]</span> ${escapeHtml(message)}`;
+  container.appendChild(entry);
+  container.scrollTop = container.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = String(str);
+  return div.innerHTML;
+}

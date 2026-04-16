@@ -73,11 +73,9 @@ export class Scrt2Client {
     if (updates.isActiveCall !== undefined) fieldValues.isActiveCall = updates.isActiveCall;
     if (updates.startTime) fieldValues.startTime = updates.startTime;
     if (updates.callOrigin) fieldValues.callOrigin = updates.callOrigin;
-    if (updates.totalRecordingDuration) fieldValues.totalRecordingDuration = updates.totalRecordingDuration;
-    if (updates.agentInteractionDuration) {
-      fieldValues.agentInteractionDuration = updates.agentInteractionDuration;
-      fieldValues.totalHoldDuration = updates.totalHoldDuration;
-    }
+    if (updates.totalRecordingDuration !== undefined) fieldValues.totalRecordingDuration = updates.totalRecordingDuration;
+    if (updates.agentInteractionDuration !== undefined) fieldValues.agentInteractionDuration = updates.agentInteractionDuration;
+    if (updates.totalHoldDuration !== undefined) fieldValues.totalHoldDuration = updates.totalHoldDuration;
 
     const response = await this._getClient().patch(
       `/voiceCalls/${voiceCallId}`,

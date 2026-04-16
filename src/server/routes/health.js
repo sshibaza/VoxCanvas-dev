@@ -6,7 +6,11 @@ export function createHealthRouter(scrt2Client) {
     res.json({
       status: 'ok',
       configured: scrt2Client.isConfigured(),
-      scrtBaseUrl: scrt2Client.scrtBaseUrl ? '***configured***' : null,
+      missing: {
+        scrtBaseUrl: !scrt2Client.scrtBaseUrl,
+        orgId: !scrt2Client.orgId,
+        callCenterApiName: !scrt2Client.callCenterApiName,
+      },
       timestamp: new Date().toISOString(),
     });
   });
