@@ -357,7 +357,7 @@ CLI-based setup automation:
 ### 9.1 HTTPS Configuration
 
 - Self-signed certificate for local HTTPS (Salesforce SCRT2 requires HTTPS)
-- Same certificate used for both server HTTPS and JWT signing
+- HTTPS server certificate and JWT signing certificate are generated separately in `certs/` (different key pairs, different purposes)
 - Browser warning on first access (documented in README)
 
 ### 9.2 Known Network Constraints
