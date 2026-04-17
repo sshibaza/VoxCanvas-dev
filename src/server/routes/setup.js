@@ -241,10 +241,42 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
-  // Strip ANSI escape sequences (color / cursor codes). sf CLI prints
-  // coloured JSON even with --json when stdout is not a TTY in some shells.
-  function stripAnsi(s) {
-    return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  // Extract the outermost JSON object/array from arbitrary text. sf CLI
+  // sometimes prefixes JSON with warnings (update banners) or colour codes
+  // that neither NO_COLOR nor stripAnsi catch. Rather than chase every
+  // escape sequence, slice from the first { or [ to the matching last
+  // } or ]. Safe because sf's --json contract is a single root value.
+  function extractJsonBlob(text) {
+    if (!text) return text;
+    const firstObj = text.indexOf('{');
+    const firstArr = text.indexOf('[');
+    let start = -1;
+    if (firstObj === -1) start = firstArr;
+    else if (firstArr === -1) start = firstObj;
+    else start = Math.min(firstObj, firstArr);
+    if (start < 0) return text;
+    const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'));
+    if (end <= start) return text;
+    return text.slice(start, end + 1);
+  }
+
+  function parseSfOutput(stdout) {
+    const cleaned = stripAnsi(stdout);
+    try {
+      return JSON.parse(cleaned);
+    } catch (parseErr) {
+      const extracted = extractJsonBlob(cleaned);
+      try {
+        return JSON.parse(extracted);
+      } catch {
+        // Surface a useful snippet so troubleshooting doesn't require
+        // server-side logs — the client will see what sf actually printed.
+        const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
+        const e = new Error(`sf CLI returned unparseable output. Head: "${snippet}". Parse error: ${parseErr.message}`);
+        e.code = 'SF_JSON_PARSE_FAILED';
+        throw e;
+      }
+    }
   }
 
   function runSfJson(args) {
@@ -258,8 +290,9 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', TERM: 'dumb' },
       });
-      return JSON.parse(stripAnsi(stdout));
+      return parseSfOutput(stdout);
     } catch (err) {
+      if (err.code === 'SF_JSON_PARSE_FAILED') throw err;
       const stderr = err.stderr ? err.stderr.toString().trim() : '';
       const msg = stderr || err.message;
       const e = new Error(msg);
