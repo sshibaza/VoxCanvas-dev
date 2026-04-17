@@ -24,34 +24,45 @@ npm run init
 
 This creates HTTPS and JWT certificates in `certs/`.
 
-### 2. Salesforce Configuration
+### 2. Deploy Contact Center
 
-**Connected App:**
-1. Setup → App Manager → New Connected App
-2. Enable OAuth Settings, select scopes: `api`, `refresh_token`
-3. Upload `certs/jwt.pem` as the digital certificate
-4. Copy Consumer Key to `.env` as `SF_CONSUMER_KEY`
-5. Set `SF_USERNAME` in `.env`
-
-**Contact Center:**
 ```bash
 sf project deploy start \
   --source-dir force-app/main/default/callCenters/ \
   --target-org YOUR_ORG
 ```
 
-**Permission Sets:**
+### 3. Register JWT Public Key on Contact Center
+
+1. Setup → Contact Centers → select the deployed VoxCanvas Contact Center
+2. Edit → paste the contents of `certs/jwt.pem` into the **Public Key** field
+3. Save
+
+The Setup Wizard (step 3) shows this pem content with a Copy button.
+
+### 4. Assign Permission Sets
+
 ```bash
 sf org assign permset --name ContactCenterAdminExternalTelephony --target-org YOUR_ORG
 sf org assign permset --name ContactCenterAgentExternalTelephony --target-org YOUR_ORG
 ```
 
-**Service Console:**
+### 5. Configure Service Console
+
 1. Add Omni-Channel Utility to your Service Console app
 2. Create Presence Status with Phone channel (e.g., "Available for Phone")
 3. Add Enhanced Conversation component to Voice Call record page (Lightning App Builder)
 
-### 3. Run
+### 6. Set Tenant Values
+
+Either run the Setup Wizard (`npm run dev` → open `http://127.0.0.1:5173/setup.html`) or fill these manually in `.env`:
+
+- `SF_SCRT_BASE_URL` — Setup → Service Cloud Voice → Partner Telephony
+- `SF_ORG_ID` — Setup → Company Information
+- `CALL_CENTER_API_NAME` — developer name of the deployed Contact Center
+- `CALL_CENTER_PHONE` — the phone number used as "from"/"to" default (optional)
+
+### 7. Run
 
 ```bash
 npm run dev       # Development (hot reload)
@@ -74,6 +85,7 @@ npm run build && npm start  # Production
 - Use `127.0.0.1` (not `localhost`) when adding the callback/CORS origin on the Salesforce side — the Connected App and SCRT2 CORS allowlist expect an explicit host
 - Accept the self-signed certificate warning on first visit to the Node HTTPS server
 - Permission set names use "Partner Telephony" not "BYOT"
+- VoxCanvas does not use a Connected App or External Client App. The Partner Telephony voice path signs JWTs with the private key whose matching public key is registered directly on the Contact Center record — no OAuth Consumer Key is required.
 - Contact Center XML must be deployed via Metadata API, not UI wizard
 - Metadata type is `ConversationVendorInfo` (not `ConversationVendorInformation`)
 - The Setup Wizard endpoints (`/api/setup/*`) only respond to loopback (127.0.0.1) by design
