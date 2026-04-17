@@ -4,7 +4,11 @@ import { spawn } from 'node:child_process';
 // log lines in escape sequences. sf CLI and many others respect these.
 const NO_COLOR_ENV = { NO_COLOR: '1', FORCE_COLOR: '0', TERM: 'dumb' };
 
-const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
+// Match CSI sequences (ESC [ ...), OSC sequences (ESC ] ... BEL / ST),
+// and bare two-char sequences (ESC =, ESC >). Covers chalk, oclif, and
+// most other colourizers. Keep this deliberately broad — stripping too
+// much is preferable to leaving stray ESC bytes that break JSON.parse.
+const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[=>]/g;
 
 export function stripAnsi(s) {
   return s ? s.replace(ANSI_RE, '') : s;
