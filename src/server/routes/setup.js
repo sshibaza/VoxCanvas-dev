@@ -275,7 +275,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-6] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-7] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -471,10 +471,13 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
           PUBLIC_KEY_PEM: pem,
         },
       });
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `sf project deploy start --source-dir ${rendered.tmpDir} --target-org ${routerState.selectedOrgAlias}` });
+      // Run sf from inside the rendered tmp dir so it recognises the
+      // sfdx-project.json we wrote there. --source-dir is then relative.
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `(cwd=${rendered.tmpDir}) sf project deploy start --source-dir ${rendered.sourceDir} --target-org ${routerState.selectedOrgAlias}` });
       const { exitCode } = await runCommand({
         command: 'sf',
-        args: ['project', 'deploy', 'start', '--source-dir', rendered.tmpDir, '--target-org', routerState.selectedOrgAlias, '--json'],
+        args: ['project', 'deploy', 'start', '--source-dir', rendered.sourceDir, '--target-org', routerState.selectedOrgAlias, '--json'],
+        cwd: rendered.tmpDir,
         onLine: (line, stream) => {
           logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'deploy', action: 'sf-exec', message: line });
           const hint = matchHint(line);
