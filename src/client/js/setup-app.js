@@ -190,18 +190,17 @@ function renderStep() {
       container.innerHTML = `
         <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
-          ウィザードが <code>ConversationVendorInfo</code> と <code>ContactCenter</code> を Metadata API で deploy します。
-          Public Key(jwt.pem)は Contact Center レコードに自動登録されます。
+          ウィザードが ngrok tunnel の起動、<code>ConversationVendorInfo</code> と <code>ContactCenter</code> の
+          Metadata API deploy までを自動で実行します。Public Key(jwt.pem)は Contact Center レコードに自動登録されます。
         </div>
 
         <div class="space-y-3 mb-4">
           <div>
-            <label class="text-xs opacity-60 block mb-1">Service Endpoint URL (ngrok 等)</label>
-            <div class="flex gap-2">
-              <input id="svc-endpoint" class="flex-1 bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" placeholder="https://xxxx.ngrok.io" />
-              <button id="btn-ngrok" class="bg-sf-blue/30 hover:bg-sf-blue/50 px-3 rounded text-xs">Launch ngrok</button>
+            <label class="text-xs opacity-60 block mb-1">Service Endpoint URL</label>
+            <div id="tunnel-display" class="bg-black/30 border border-white/10 rounded px-3 py-2 text-sm font-mono min-h-[2.25rem] flex items-center gap-2">
+              <span class="opacity-50">Provisioning tunnel...</span>
             </div>
-            <div id="ngrok-status" class="text-xs opacity-60 mt-1"></div>
+            <div id="tunnel-status" class="text-xs opacity-60 mt-1"></div>
           </div>
           <div>
             <label class="text-xs opacity-60 block mb-1">CC Developer Name</label>
@@ -213,7 +212,7 @@ function renderStep() {
           </div>
         </div>
 
-        <button id="btn-deploy" class="w-full bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-2 rounded font-semibold text-sm">Deploy</button>
+        <button id="btn-deploy" class="w-full bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-2 rounded font-semibold text-sm opacity-30 pointer-events-none" disabled>Deploy</button>
         <div id="deploy-log"></div>
 
         <div class="flex justify-between mt-6">
@@ -222,24 +221,100 @@ function renderStep() {
         </div>
       `;
 
-      document.getElementById('btn-ngrok').addEventListener('click', async () => {
-        const status = document.getElementById('ngrok-status');
-        status.textContent = 'Starting ngrok...';
-        const r = await fetch('/api/setup/ngrok/start', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ port: 3030 }),
-        }).then((x) => x.json());
-        if (r.error) {
-          status.textContent = `Error: ${r.message}`;
-          return;
+      (async () => {
+        const display = document.getElementById('tunnel-display');
+        const statusEl = document.getElementById('tunnel-status');
+        const deployBtn = document.getElementById('btn-deploy');
+
+        function setTunnelReady(url, pid, reused) {
+          display.innerHTML = `<span class="text-sf-success">&#10003;</span> <span class="break-all">${url}</span>`;
+          statusEl.textContent = reused ? `Reused existing tunnel (pid ${pid})` : `pid ${pid}`;
+          state.serviceEndpoint = url;
+          state.ngrokStarted = true;
+          deployBtn.classList.remove('opacity-30', 'pointer-events-none');
+          deployBtn.disabled = false;
         }
-        document.getElementById('svc-endpoint').value = r.url;
-        state.ngrokStarted = true;
-        status.textContent = `Tunnel: ${r.url} (pid ${r.pid})`;
-      });
+
+        function copyCmd(cmd) {
+          return `<div class="flex items-center gap-2 bg-black/40 border border-white/10 rounded px-2 py-1 font-mono text-[0.7rem]">
+            <span class="flex-1 break-all">${cmd}</span>
+            <button data-copy="${cmd.replace(/"/g, '&quot;')}" class="opacity-60 hover:opacity-100 text-xs">copy</button>
+          </div>`;
+        }
+
+        function setTunnelError(message) {
+          display.innerHTML = `<span class="text-sf-error">&#10007; Tunnel unavailable</span>`;
+          statusEl.innerHTML = `
+            <div class="text-sf-error mb-2">${message}</div>
+            <div class="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
+              <div class="font-semibold opacity-80">ngrok セットアップ(初回のみ、約 2 分)</div>
+              <div>
+                <div class="opacity-80 mb-1"><b>1.</b> アカウント作成(無料):
+                  <a href="https://dashboard.ngrok.com/signup" target="_blank" class="underline text-sf-blue">dashboard.ngrok.com/signup</a>
+                </div>
+              </div>
+              <div>
+                <div class="opacity-80 mb-1"><b>2.</b> インストール(macOS):</div>
+                ${copyCmd('brew install ngrok')}
+                <div class="opacity-50 text-[0.65rem] mt-1">Windows / Linux: <a href="https://ngrok.com/download" target="_blank" class="underline">ngrok.com/download</a></div>
+              </div>
+              <div>
+                <div class="opacity-80 mb-1"><b>3.</b> authtoken を取得:
+                  <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" class="underline text-sf-blue">Your Authtoken ページ</a>
+                  を開いてトークン文字列をコピー
+                </div>
+              </div>
+              <div>
+                <div class="opacity-80 mb-1"><b>4.</b> authtoken を登録(トークンを実際の値に置換):</div>
+                ${copyCmd('ngrok config add-authtoken YOUR_TOKEN_HERE')}
+              </div>
+              <div>
+                <div class="opacity-80"><b>5.</b> 下の Retry ボタンを押す(ウィザードを閉じる必要はありません)</div>
+              </div>
+            </div>
+            <button id="btn-tunnel-retry" class="mt-3 bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-1.5 rounded text-sm font-semibold">Retry</button>`;
+          statusEl.querySelectorAll('button[data-copy]').forEach((b) => {
+            b.addEventListener('click', () => {
+              navigator.clipboard.writeText(b.dataset.copy);
+              const orig = b.textContent;
+              b.textContent = 'copied';
+              setTimeout(() => { b.textContent = orig; }, 1000);
+            });
+          });
+          const retry = document.getElementById('btn-tunnel-retry');
+          if (retry) retry.addEventListener('click', provisionTunnel);
+        }
+
+        async function provisionTunnel() {
+          display.innerHTML = '<span class="opacity-50">Provisioning tunnel...</span>';
+          statusEl.textContent = '';
+          try {
+            // Reuse if a previous visit to this step already started ngrok.
+            const existing = await fetch('/api/setup/ngrok/status').then((x) => x.json());
+            if (existing.running && existing.url) {
+              setTunnelReady(existing.url, existing.pid, true);
+              return;
+            }
+            const r = await fetch('/api/setup/ngrok/start', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ port: 3030 }),
+            }).then((x) => x.json());
+            if (r.error) { setTunnelError(r.message); return; }
+            setTunnelReady(r.url, r.pid, r.reused);
+          } catch (err) {
+            setTunnelError(err.message);
+          }
+        }
+
+        provisionTunnel();
+      })();
 
       document.getElementById('btn-deploy').addEventListener('click', async () => {
-        const serviceEndpoint = document.getElementById('svc-endpoint').value.trim();
+        if (!state.serviceEndpoint) {
+          alert('Tunnel not provisioned yet. Wait for "Provisioning tunnel..." to finish or click Retry.');
+          return;
+        }
+        const serviceEndpoint = state.serviceEndpoint;
         const developerName = document.getElementById('cc-dev-name').value.trim();
         const masterLabel = document.getElementById('cc-label').value.trim();
 
