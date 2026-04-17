@@ -67,6 +67,7 @@ describe('renderMetadata', () => {
     // complain "IntegrationClass を指定します" even when these tags were
     // absent from the template.
     const apexRequiringFlags = [
+      'keyProvisioningSupported',
       'einsteinConversationInsightsSupported',
       'userSyncingSupported',
       'partnerTransferDestinationsSupported',

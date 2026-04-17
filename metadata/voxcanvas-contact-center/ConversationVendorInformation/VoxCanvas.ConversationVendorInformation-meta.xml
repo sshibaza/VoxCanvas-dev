@@ -11,11 +11,19 @@
          payload) that satisfies the platform check without VoxCanvas
          needing any real Apex logic. -->
     <integrationClass>VoxCanvasTelephonyIntegration</integrationClass>
-    <!-- Required for JWT public-key auth (NOT in the Apex-requiring list). -->
-    <keyProvisioningSupported>true</keyProvisioningSupported>
-    <!-- Every feature that the validator says requires IntegrationClass
-         is explicitly disabled so the ServiceCloudVoicePartner vendor
-         type doesn't enable them by default. VoxCanvas ships no Apex. -->
+    <!-- Every *Supported flag that the validator says requires an
+         IntegrationClass implementation is explicitly disabled so the
+         ServiceCloudVoicePartner vendor type doesn't enable them by
+         default. VoxCanvas ships only an empty stub Apex class.
+
+         keyProvisioningSupported=false is intentional: VoxCanvas uses
+         manual JWT public-key entry (the wizard Step 3 instructs the
+         admin to paste certs/jwt.pem into the Contact Center's Public
+         Key field via Setup UI). keyProvisioningSupported=true would
+         require the integrationClass to implement
+         service_cloud_voice.KeyProvider and would reject deploys that
+         don't. -->
+    <keyProvisioningSupported>false</keyProvisioningSupported>
     <einsteinConversationInsightsSupported>false</einsteinConversationInsightsSupported>
     <userSyncingSupported>false</userSyncingSupported>
     <partnerTransferDestinationsSupported>false</partnerTransferDestinationsSupported>
