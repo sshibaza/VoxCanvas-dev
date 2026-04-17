@@ -90,11 +90,81 @@ function renderStep() {
       break;
 
     case 'org-auth':
-      container.innerHTML = `<div class="text-sm">Org auth step — to be implemented</div>
-        <div class="flex justify-between mt-4">
-          <button onclick="prevStep()" class="text-sm opacity-50">&larr; Back</button>
-          <button onclick="nextStep()" class="bg-sf-blue/40 px-6 py-2 rounded-md text-sm">Next &rarr;</button>
-        </div>`;
+      container.innerHTML = `
+        <h2 class="text-lg font-bold mb-4">Select Salesforce Org</h2>
+        <div id="org-current" class="text-sm opacity-70 mb-4">Loading...</div>
+        <div class="space-y-3">
+          <button id="btn-use-default" class="w-full bg-sf-blue/40 hover:bg-sf-blue/60 px-4 py-2 rounded-md text-sm font-semibold hidden">Use default org</button>
+          <details class="bg-white/5 rounded-md">
+            <summary class="text-sm p-2 cursor-pointer">Pick a different org</summary>
+            <div id="org-list" class="p-2 space-y-1 text-sm"></div>
+          </details>
+          <details class="bg-white/5 rounded-md">
+            <summary class="text-sm p-2 cursor-pointer">Login a new org</summary>
+            <div class="p-2 space-y-2 text-sm">
+              <input id="new-alias" placeholder="alias (alnum/._-)" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
+              <button id="btn-login" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-4 py-1.5 rounded text-sm">Launch browser login</button>
+              <div id="login-log"></div>
+            </div>
+          </details>
+        </div>
+        <div class="flex justify-between mt-6">
+          <button onclick="prevStep()" class="opacity-50 hover:opacity-100 text-sm">&larr; Back</button>
+          <button id="btn-org-next" onclick="nextStep()" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-6 py-2 rounded-md text-sm font-semibold opacity-30 pointer-events-none">Next &rarr;</button>
+        </div>
+      `;
+
+      (async () => {
+        const info = document.getElementById('org-current');
+        const useBtn = document.getElementById('btn-use-default');
+        const r = await fetch('/api/setup/org').then((x) => x.json());
+        if (r.hasDefault) {
+          info.innerHTML = `<div>Default alias: <b>${r.alias}</b></div><div class="opacity-60 text-xs">${r.username} — ${r.orgId}</div><div class="opacity-60 text-xs mt-1">SCRT: ${r.scrtBaseUrl}</div>`;
+          useBtn.classList.remove('hidden');
+          useBtn.addEventListener('click', async () => {
+            await selectOrg(r.alias);
+          });
+        } else {
+          info.textContent = 'No default org. Pick or log in below.';
+        }
+        const list = await fetch('/api/setup/org/list').then((x) => x.json());
+        const listEl = document.getElementById('org-list');
+        listEl.innerHTML = (list.orgs || []).map((o) => `
+          <button data-alias="${o.alias || o.username}" class="block w-full text-left hover:bg-white/10 px-2 py-1 rounded">
+            ${o.alias || '(no alias)'} — <span class="opacity-60">${o.username}</span>
+          </button>
+        `).join('');
+        listEl.querySelectorAll('button[data-alias]').forEach((b) => {
+          b.addEventListener('click', () => selectOrg(b.dataset.alias));
+        });
+        document.getElementById('btn-login').addEventListener('click', async () => {
+          const alias = document.getElementById('new-alias').value.trim();
+          if (!alias) return;
+          const logPanel = createLogPanel('login-log');
+          await streamSse('/api/setup/org/login', { alias }, (event, data) => {
+            if (event === 'log') logPanel.append(data.line || data.message, data.level);
+            else if (event === 'done') {
+              logPanel.attachFile(data.runId);
+              if (data.success) selectOrg(alias);
+            }
+          });
+        });
+      })();
+
+      async function selectOrg(alias) {
+        const r = await fetch('/api/setup/org/select', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alias }),
+        }).then((x) => x.json());
+        if (r.error) { alert(r.message); return; }
+        state.orgAlias = alias;
+        state.orgId = r.orgId;
+        state.username = r.username;
+        state.scrtBaseUrl = r.scrtBaseUrl;
+        const btn = document.getElementById('btn-org-next');
+        btn.classList.remove('opacity-30', 'pointer-events-none');
+        document.getElementById('org-current').innerHTML = `<div class="text-sf-success">Selected: <b>${alias}</b> (${r.username})</div>`;
+      }
       break;
 
     case 'contact-center':
