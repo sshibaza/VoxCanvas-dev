@@ -52,7 +52,10 @@ function renderStep() {
             ${state.opensslAvailable ? '<span class="text-sf-success">&#10003;</span> OpenSSL available' : '<span class="text-sf-error">&#10007;</span> OpenSSL not found (required)'}
           </div>
           <div class="flex items-center gap-2 text-sm">
-            ${state.sfCliVersion ? `<span class="text-sf-success">&#10003;</span> Salesforce CLI: ${state.sfCliVersion}` : '<span class="text-sf-orange">&#9888;</span> Salesforce CLI not found <span class="opacity-40">(optional)</span>'}
+            ${state.sfCliVersion ? `<span class="text-sf-success">&#10003;</span> Salesforce CLI: ${state.sfCliVersion}` : '<span class="text-sf-error">&#10007;</span> Salesforce CLI not found (required)'}
+          </div>
+          <div class="flex items-center gap-2 text-sm">
+            ${state.ngrokVersion ? `<span class="text-sf-success">&#10003;</span> ngrok: ${state.ngrokVersion}` : '<span class="opacity-40">&#8212;</span> ngrok not found <span class="opacity-40">(optional, Tunnel mode only)</span>'}
           </div>
         </div>
         <div class="flex justify-end">
@@ -186,19 +189,38 @@ function renderStep() {
       }
       break;
 
-    case 'contact-center':
+    case 'contact-center': {
+      const LOCAL_ENDPOINT = 'https://127.0.0.1:3030/';
       container.innerHTML = `
         <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
-          ウィザードが ngrok tunnel の起動、<code>ConversationVendorInfo</code> と <code>ContactCenter</code> の
-          Metadata API deploy までを自動で実行します。Public Key(jwt.pem)は Contact Center レコードに自動登録されます。
+          ウィザードが <code>ConversationVendorInfo</code> と <code>ContactCenter</code> の Metadata API deploy を自動で実行します。
+          Public Key(jwt.pem)は Contact Center レコードに自動登録されます。
+        </div>
+
+        <div class="bg-white/5 border border-white/10 rounded p-3 mb-4 text-sm">
+          <div class="text-xs opacity-60 mb-2">Endpoint mode</div>
+          <label class="flex items-start gap-2 mb-2 cursor-pointer">
+            <input type="radio" name="ep-mode" value="local" checked class="mt-1">
+            <div>
+              <div class="font-semibold">Local (127.0.0.1)</div>
+              <div class="opacity-60 text-xs">同じ Mac で Salesforce Lightning と VoxCanvas を動かすデモ(FDE の画面共有デモなど)。ngrok 不要。</div>
+            </div>
+          </label>
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input type="radio" name="ep-mode" value="tunnel" class="mt-1">
+            <div>
+              <div class="font-semibold">Tunnel (ngrok)</div>
+              <div class="opacity-60 text-xs">別の PC から agent として Salesforce にログインする/リモート同僚と共有する場合。ngrok の事前設定が必要。</div>
+            </div>
+          </label>
         </div>
 
         <div class="space-y-3 mb-4">
           <div>
             <label class="text-xs opacity-60 block mb-1">Service Endpoint URL</label>
             <div id="tunnel-display" class="bg-black/30 border border-white/10 rounded px-3 py-2 text-sm font-mono min-h-[2.25rem] flex items-center gap-2">
-              <span class="opacity-50">Provisioning tunnel...</span>
+              <span class="opacity-50">—</span>
             </div>
             <div id="tunnel-status" class="text-xs opacity-60 mt-1"></div>
           </div>
@@ -221,97 +243,126 @@ function renderStep() {
         </div>
       `;
 
-      (async () => {
-        const display = document.getElementById('tunnel-display');
-        const statusEl = document.getElementById('tunnel-status');
-        const deployBtn = document.getElementById('btn-deploy');
+      const display = document.getElementById('tunnel-display');
+      const statusEl = document.getElementById('tunnel-status');
+      const deployBtn = document.getElementById('btn-deploy');
 
-        function setTunnelReady(url, pid, reused) {
-          display.innerHTML = `<span class="text-sf-success">&#10003;</span> <span class="break-all">${url}</span>`;
-          statusEl.textContent = reused ? `Reused existing tunnel (pid ${pid})` : `pid ${pid}`;
-          state.serviceEndpoint = url;
-          state.ngrokStarted = true;
-          deployBtn.classList.remove('opacity-30', 'pointer-events-none');
-          deployBtn.disabled = false;
-        }
+      function setEndpointReady(url, note) {
+        display.innerHTML = `<span class="text-sf-success">&#10003;</span> <span class="break-all">${url}</span>`;
+        statusEl.textContent = note || '';
+        state.serviceEndpoint = url;
+        deployBtn.classList.remove('opacity-30', 'pointer-events-none');
+        deployBtn.disabled = false;
+      }
 
-        function copyCmd(cmd) {
-          return `<div class="flex items-center gap-2 bg-black/40 border border-white/10 rounded px-2 py-1 font-mono text-[0.7rem]">
-            <span class="flex-1 break-all">${cmd}</span>
-            <button data-copy="${cmd.replace(/"/g, '&quot;')}" class="opacity-60 hover:opacity-100 text-xs">copy</button>
-          </div>`;
-        }
+      function setEndpointError(html) {
+        display.innerHTML = `<span class="text-sf-error">&#10007; Endpoint unavailable</span>`;
+        statusEl.innerHTML = html;
+        state.serviceEndpoint = null;
+        deployBtn.classList.add('opacity-30', 'pointer-events-none');
+        deployBtn.disabled = true;
+      }
 
-        function setTunnelError(message) {
-          display.innerHTML = `<span class="text-sf-error">&#10007; Tunnel unavailable</span>`;
-          statusEl.innerHTML = `
-            <div class="text-sf-error mb-2">${message}</div>
-            <div class="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
-              <div class="font-semibold opacity-80">ngrok セットアップ(初回のみ、約 2 分)</div>
-              <div>
-                <div class="opacity-80 mb-1"><b>1.</b> アカウント作成(無料):
-                  <a href="https://dashboard.ngrok.com/signup" target="_blank" class="underline text-sf-blue">dashboard.ngrok.com/signup</a>
-                </div>
-              </div>
-              <div>
-                <div class="opacity-80 mb-1"><b>2.</b> インストール(macOS):</div>
-                ${copyCmd('brew install ngrok')}
-                <div class="opacity-50 text-[0.65rem] mt-1">Windows / Linux: <a href="https://ngrok.com/download" target="_blank" class="underline">ngrok.com/download</a></div>
-              </div>
-              <div>
-                <div class="opacity-80 mb-1"><b>3.</b> authtoken を取得:
-                  <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" class="underline text-sf-blue">Your Authtoken ページ</a>
-                  を開いてトークン文字列をコピー
-                </div>
-              </div>
-              <div>
-                <div class="opacity-80 mb-1"><b>4.</b> authtoken を登録(トークンを実際の値に置換):</div>
-                ${copyCmd('ngrok config add-authtoken YOUR_TOKEN_HERE')}
-              </div>
-              <div>
-                <div class="opacity-80"><b>5.</b> 下の Retry ボタンを押す(ウィザードを閉じる必要はありません)</div>
-              </div>
-            </div>
-            <button id="btn-tunnel-retry" class="mt-3 bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-1.5 rounded text-sm font-semibold">Retry</button>`;
-          statusEl.querySelectorAll('button[data-copy]').forEach((b) => {
-            b.addEventListener('click', () => {
-              navigator.clipboard.writeText(b.dataset.copy);
-              const orig = b.textContent;
-              b.textContent = 'copied';
-              setTimeout(() => { b.textContent = orig; }, 1000);
-            });
+      function copyCmd(cmd) {
+        return `<div class="flex items-center gap-2 bg-black/40 border border-white/10 rounded px-2 py-1 font-mono text-[0.7rem]">
+          <span class="flex-1 break-all">${cmd}</span>
+          <button data-copy="${cmd.replace(/"/g, '&quot;')}" class="opacity-60 hover:opacity-100 text-xs">copy</button>
+        </div>`;
+      }
+      function wireCopyButtons(root) {
+        root.querySelectorAll('button[data-copy]').forEach((b) => {
+          b.addEventListener('click', () => {
+            navigator.clipboard.writeText(b.dataset.copy);
+            const orig = b.textContent;
+            b.textContent = 'copied';
+            setTimeout(() => { b.textContent = orig; }, 1000);
           });
-          const retry = document.getElementById('btn-tunnel-retry');
-          if (retry) retry.addEventListener('click', provisionTunnel);
-        }
+        });
+      }
 
-        async function provisionTunnel() {
-          display.innerHTML = '<span class="opacity-50">Provisioning tunnel...</span>';
-          statusEl.textContent = '';
-          try {
-            // Reuse if a previous visit to this step already started ngrok.
-            const existing = await fetch('/api/setup/ngrok/status').then((x) => x.json());
-            if (existing.running && existing.url) {
-              setTunnelReady(existing.url, existing.pid, true);
-              return;
-            }
-            const r = await fetch('/api/setup/ngrok/start', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ port: 3030 }),
-            }).then((x) => x.json());
-            if (r.error) { setTunnelError(r.message); return; }
-            setTunnelReady(r.url, r.pid, r.reused);
-          } catch (err) {
-            setTunnelError(err.message);
+      async function enterLocalMode() {
+        state.endpointMode = 'local';
+        display.innerHTML = `<span class="opacity-50">Checking 127.0.0.1 reachability...</span>`;
+        statusEl.textContent = '';
+        try {
+          const r = await fetch('/api/health', { cache: 'no-store' });
+          if (!r.ok) throw new Error(`health returned ${r.status}`);
+          setEndpointReady(LOCAL_ENDPOINT,
+            'VoxCanvas is reachable on 127.0.0.1. Agent browser on THIS Mac can load the connector directly — no tunnel needed.');
+        } catch (err) {
+          // Most commonly: browser hasn't accepted the self-signed cert yet.
+          setEndpointError(`
+            <div class="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
+              <div class="font-semibold opacity-80">Self-signed 証明書を受理してください(初回のみ)</div>
+              <div class="opacity-80"><b>1.</b> 新しいタブで以下を開く:</div>
+              ${copyCmd('https://127.0.0.1:3030/')}
+              <div class="opacity-80"><b>2.</b> ブラウザの警告画面で <b>[詳細設定]</b> → <b>[このまま続行](このサイトにアクセスする)</b></div>
+              <div class="opacity-80"><b>3.</b> 下の <b>Re-check</b> を押す</div>
+              <div class="opacity-50 text-[0.65rem] mt-1">もし VoxCanvas サーバーが起動していない場合は <code>npm run dev</code> を先に実行してください。</div>
+            </div>
+            <button id="btn-local-retry" class="mt-3 bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-1.5 rounded text-sm font-semibold">Re-check</button>`);
+          wireCopyButtons(statusEl);
+          document.getElementById('btn-local-retry')?.addEventListener('click', enterLocalMode);
+        }
+      }
+
+      async function enterTunnelMode() {
+        state.endpointMode = 'tunnel';
+        display.innerHTML = '<span class="opacity-50">Provisioning tunnel...</span>';
+        statusEl.textContent = '';
+        try {
+          const existing = await fetch('/api/setup/ngrok/status').then((x) => x.json());
+          if (existing.running && existing.url) {
+            setEndpointReady(existing.url, `Reused existing tunnel (pid ${existing.pid})`);
+            return;
           }
+          const r = await fetch('/api/setup/ngrok/start', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ port: 3030 }),
+          }).then((x) => x.json());
+          if (r.error) { showTunnelInstall(r.message); return; }
+          setEndpointReady(r.url, `pid ${r.pid}`);
+        } catch (err) {
+          showTunnelInstall(err.message);
         }
+      }
 
-        provisionTunnel();
-      })();
+      function showTunnelInstall(message) {
+        setEndpointError(`
+          <div class="text-sf-error mb-2">${message}</div>
+          <div class="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
+            <div class="font-semibold opacity-80">ngrok セットアップ(初回のみ、約 2 分)</div>
+            <div class="opacity-80"><b>1.</b> アカウント作成(無料): <a href="https://dashboard.ngrok.com/signup" target="_blank" class="underline text-sf-blue">dashboard.ngrok.com/signup</a></div>
+            <div>
+              <div class="opacity-80 mb-1"><b>2.</b> インストール(macOS):</div>
+              ${copyCmd('brew install ngrok')}
+              <div class="opacity-50 text-[0.65rem] mt-1">Windows / Linux: <a href="https://ngrok.com/download" target="_blank" class="underline">ngrok.com/download</a></div>
+            </div>
+            <div class="opacity-80"><b>3.</b> authtoken を取得: <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" class="underline text-sf-blue">Your Authtoken ページ</a> からトークン文字列をコピー</div>
+            <div>
+              <div class="opacity-80 mb-1"><b>4.</b> authtoken を登録(<code>YOUR_TOKEN_HERE</code> を実際の値に置換):</div>
+              ${copyCmd('ngrok config add-authtoken YOUR_TOKEN_HERE')}
+            </div>
+            <div class="opacity-80"><b>5.</b> 下の <b>Retry</b> を押す(または Local mode に切替)</div>
+          </div>
+          <button id="btn-tunnel-retry" class="mt-3 bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-1.5 rounded text-sm font-semibold">Retry</button>`);
+        wireCopyButtons(statusEl);
+        document.getElementById('btn-tunnel-retry')?.addEventListener('click', enterTunnelMode);
+      }
+
+      container.querySelectorAll('input[name="ep-mode"]').forEach((radio) => {
+        radio.addEventListener('change', () => {
+          if (radio.checked && radio.value === 'local') enterLocalMode();
+          if (radio.checked && radio.value === 'tunnel') enterTunnelMode();
+        });
+      });
+
+      // Default: Local mode
+      enterLocalMode();
 
       document.getElementById('btn-deploy').addEventListener('click', async () => {
         if (!state.serviceEndpoint) {
-          alert('Tunnel not provisioned yet. Wait for "Provisioning tunnel..." to finish or click Retry.');
+          alert('Endpoint not ready yet. Accept the cert / set up ngrok, then retry.');
           return;
         }
         const serviceEndpoint = state.serviceEndpoint;
@@ -336,6 +387,7 @@ function renderStep() {
         });
       });
       break;
+    }
 
     case 'permset':
       container.innerHTML = `

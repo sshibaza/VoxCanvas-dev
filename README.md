@@ -21,10 +21,21 @@ Setup Wizard が `sf` CLI を呼び出して Contact Center 作成・Permission 
 ### 前提
 
 - `sf` CLI v2.x 以降(`sf --version` で確認)
-- `ngrok` v3.x(optional、Salesforce から VoxCanvas に到達させる tunnel 用。`ngrok config add-authtoken <token>` 済みであること)
 - 対象 Salesforce Org:
   - Service Cloud Voice for Partner Telephony ライセンス有効
   - ログインユーザーが System Administrator 相当
+- `ngrok` v3.x は **optional**。Tunnel mode を使う場合のみ必要(下表参照)
+
+### Endpoint mode
+
+Step 4 の Contact Center 作成時に 2 通りの serviceEndpoint から選びます:
+
+| Mode | Service Endpoint | 想定シナリオ | 前提 |
+|---|---|---|---|
+| **Local(デフォルト)** | `https://127.0.0.1:3030/` | FDE が自 Mac で Salesforce Lightning と VoxCanvas を両方動かして画面共有するデモ | 自己署名証明書を 1 度受理するだけ |
+| **Tunnel** | `https://xxxx.ngrok.io/` (自動取得) | 別 PC の同僚を agent としてリモート参加させる | `ngrok` + authtoken の事前設定 |
+
+ConversationVendorInfo.serviceEndpoint は Salesforce サーバーではなく **agent のブラウザが iframe でロードする URL** なので、agent と VoxCanvas が同じマシンなら 127.0.0.1 で到達できます(ngrok 不要)。
 
 ### 手順
 
@@ -38,10 +49,12 @@ npm run dev
 1. **Welcome** — 環境チェック(node / sf / openssl / ngrok)
 2. **Certificate** — HTTPS + JWT 証明書を生成
 3. **Org** — `sf` 既定 Org を使用 or 別の alias を選択 or 新規ログイン
-4. **Contact Center** — ngrok 起動 + Contact Center 名を入力 → Deploy
+4. **Contact Center** — Endpoint mode を選択(Local or Tunnel)→ Deploy
 5. **Permissions** — Admin + Agent permset を割り当て
 6. **Connect** — 設定サマリの疎通確認
 7. **Verify** — 設定サマリ確認 + cleanup 実行 + `.env` 保存
+
+Local mode を使う場合、Step 4 で「Re-check」が促されたら `https://127.0.0.1:3030/` を新しいタブで開いて自己署名証明書の警告を 1 度受理してください。
 
 ### 完了後
 
