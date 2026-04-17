@@ -273,7 +273,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-2] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-3] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -365,7 +365,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias or username required (alnum/._@+-)' });
     }
     try {
-      const display = JSON.parse(execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], { encoding: 'utf-8' }));
+      const display = runSfJson(['org', 'display', '--target-org', alias, '--json']);
       const r = display?.result || {};
       routerState.selectedOrgAlias = alias;
       routerState.selectedOrgUsername = r.username;
@@ -418,11 +418,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       // name and selectedOrgAlias are regex-validated elsewhere, but we still
       // avoid shell interpolation and build SOQL via argv-only args.
       const soql = `SELECT Id, DeveloperName FROM ContactCenter WHERE DeveloperName = '${name}'`;
-      const out = JSON.parse(execFileSync(
-        'sf',
-        ['data', 'query', '-q', soql, '--target-org', routerState.selectedOrgAlias, '--json'],
-        { encoding: 'utf-8' },
-      ));
+      const out = runSfJson(['data', 'query', '-q', soql, '--target-org', routerState.selectedOrgAlias, '--json']);
       const records = out?.result?.records || [];
       res.json({ exists: records.length > 0, id: records[0]?.Id || null });
     } catch (err) {
