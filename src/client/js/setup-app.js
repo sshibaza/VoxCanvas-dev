@@ -1,7 +1,9 @@
 const STEPS = [
   { id: 'welcome', label: 'Welcome' },
   { id: 'certificate', label: 'Certificate' },
+  { id: 'org-auth', label: 'Org' },
   { id: 'contact-center', label: 'Contact Center' },
+  { id: 'permset', label: 'Permissions' },
   { id: 'test', label: 'Connect' },
   { id: 'complete', label: 'Verify' },
 ];
@@ -87,14 +89,23 @@ function renderStep() {
       });
       break;
 
+    case 'org-auth':
+      container.innerHTML = `<div class="text-sm">Org auth step — to be implemented</div>
+        <div class="flex justify-between mt-4">
+          <button onclick="prevStep()" class="text-sm opacity-50">&larr; Back</button>
+          <button onclick="nextStep()" class="bg-sf-blue/40 px-6 py-2 rounded-md text-sm">Next &rarr;</button>
+        </div>`;
+      break;
+
     case 'contact-center':
       container.innerHTML = `
         <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
-          In your Salesforce org:<br>
-          1. Deploy the Contact Center metadata (see README)<br>
-          2. Setup &rarr; Contact Centers &rarr; (VoxCanvas CC) &rarr; paste the public key below into the <strong>Public Key</strong> field<br>
-          3. Fill the tenant fields below
+          In your Salesforce org (complete in order):<br>
+          1. Deploy the <code>ConversationVendorInfo</code> metadata (see README) &mdash; this registers the vendor only<br>
+          2. Setup &rarr; Quick Find &rarr; <strong>Partner Telephony Setup</strong> &rarr; step &ldquo;Create Your Contact Center&rdquo; &rarr; <strong>New</strong> &rarr; select the deployed vendor and upload your Contact Center XML<br>
+          3. Setup &rarr; Quick Find &rarr; <strong>Partner Telephony Contact Centers</strong> &rarr; open the created Contact Center &rarr; <strong>Edit</strong> &rarr; paste the public key below into the <strong>Public Key</strong> field &rarr; Save<br>
+          4. Fill the tenant fields below
         </div>
 
         <div class="mb-6">
@@ -111,7 +122,8 @@ function renderStep() {
         <div class="space-y-3 mb-6">
           <div class="text-xs font-semibold opacity-70 mb-1">Tenant / Contact Center</div>
           <div class="text-[0.65rem] opacity-40 mb-2 leading-relaxed">
-            Find SCRT Base URL in Setup &rarr; Service Cloud Voice &rarr; Partner Telephony.
+            SCRT2 Base URL is derived from your My Domain: replace <code>.my.salesforce.com</code> with <code>.my.salesforce-scrt.com</code>
+            (e.g. <code>https://example.my.salesforce-scrt.com</code>). Check Setup &rarr; My Domain for the current My Domain URL.
             Org ID is in Setup &rarr; Company Information.
           </div>
           <div>
@@ -196,6 +208,14 @@ function renderStep() {
       bind('setup-org-id', 'orgId');
       bind('setup-call-center-api-name', 'callCenterApiName');
       bind('setup-call-center-phone', 'callCenterPhone');
+      break;
+
+    case 'permset':
+      container.innerHTML = `<div class="text-sm">Permset step — to be implemented</div>
+        <div class="flex justify-between mt-4">
+          <button onclick="prevStep()" class="text-sm opacity-50">&larr; Back</button>
+          <button onclick="nextStep()" class="bg-sf-blue/40 px-6 py-2 rounded-md text-sm">Next &rarr;</button>
+        </div>`;
       break;
 
     case 'test':
