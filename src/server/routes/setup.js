@@ -1,7 +1,22 @@
 import { Router } from 'express';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Logger } from '../setup/logger.js';
+import { ProcessRegistry } from '../setup/processRegistry.js';
+
+function openSse(res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  const send = (event, data) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  return send;
+}
 
 // Restrict destructive setup endpoints to local calls only. The wizard
 // generates certs, runs openssl, and writes .env — not something we want
@@ -41,6 +56,14 @@ export function createSetupRouter(scrt2Client) {
   const router = Router();
   router.use('/setup', localhostOnly);
 
+  const logger = new Logger();
+  const registry = new ProcessRegistry();
+  const routerState = {
+    selectedOrgAlias: null,
+    selectedOrgUsername: null,
+    lastRunIds: {},
+  };
+
   router.get('/setup/status', (req, res) => {
     const hasEnv = fs.existsSync('.env');
     const hasCerts = fs.existsSync('certs/jwt.key') && fs.existsSync('certs/server.pem');
@@ -48,6 +71,11 @@ export function createSetupRouter(scrt2Client) {
     let sfCliVersion = null;
     try {
       sfCliVersion = execSync('sf version', { encoding: 'utf-8' }).trim();
+    } catch { /* not installed */ }
+
+    let ngrokVersion = null;
+    try {
+      ngrokVersion = execSync('ngrok version', { encoding: 'utf-8' }).trim();
     } catch { /* not installed */ }
 
     let nodeVersion = null;
@@ -66,6 +94,7 @@ export function createSetupRouter(scrt2Client) {
       hasEnv,
       hasCerts,
       sfCliVersion,
+      ngrokVersion,
       nodeVersion,
       opensslAvailable,
     });
@@ -144,7 +173,7 @@ export function createSetupRouter(scrt2Client) {
     }
   });
 
-  router.post('/setup/complete', (req, res) => {
+  router.post('/setup/complete', async (req, res) => {
     try {
       const { scrtBaseUrl, orgId, callCenterApiName, callCenterPhone } = req.body;
       if (!scrtBaseUrl || !orgId || !callCenterApiName) {
@@ -187,7 +216,21 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         callCenterApiName: safe.callCenterApiName,
       });
 
-      res.json({ success: true, message: 'Configuration saved.' });
+      const { cleanupAllTmpDirs } = await import('../setup/metadataRenderer.js');
+      const cleanup = req.body?.cleanup || {};
+      const cleanupResult = { logsDeleted: 0, tmpDirsDeleted: 0, processesStopped: [] };
+      if (cleanup.deleteLogs) {
+        cleanupResult.logsDeleted = logger.deleteAll();
+      }
+      if (cleanup.deleteTmp) {
+        cleanupResult.tmpDirsDeleted = cleanupAllTmpDirs();
+      }
+      if (Array.isArray(cleanup.stopProcesses)) {
+        for (const name of cleanup.stopProcesses) {
+          if (await registry.stop(name)) cleanupResult.processesStopped.push(name);
+        }
+      }
+      res.json({ success: true, message: 'Configuration saved.', cleanup: cleanupResult });
     } catch (err) {
       const status = err.code === 'INVALID_INPUT' ? 400 : 500;
       res.status(status).json({
@@ -198,5 +241,292 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
-  return router;
+  router.get('/setup/org', (req, res) => {
+    try {
+      const defaultOrg = execSync('sf config get target-org --json', { encoding: 'utf-8' });
+      const parsed = JSON.parse(defaultOrg);
+      const alias = parsed?.result?.[0]?.value || null;
+      if (!alias) {
+        return res.json({ hasDefault: false });
+      }
+      const display = JSON.parse(execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], { encoding: 'utf-8' }));
+      const r = display?.result || {};
+      const myDomainUrl = r.instanceUrl || '';
+      const scrtBaseUrl = myDomainUrl.replace('.my.salesforce.com', '.my.salesforce-scrt.com');
+      res.json({
+        hasDefault: true,
+        alias,
+        username: r.username,
+        orgId: r.id,
+        instanceUrl: r.instanceUrl,
+        myDomainUrl,
+        scrtBaseUrl,
+      });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_ORG_FAILED', message: err.message });
+    }
+  });
+
+  router.get('/setup/org/list', (req, res) => {
+    try {
+      const out = JSON.parse(execSync('sf org list --json', { encoding: 'utf-8' }));
+      const all = [...(out?.result?.nonScratchOrgs || []), ...(out?.result?.scratchOrgs || [])];
+      const orgs = all.map((o) => ({
+        alias: o.alias,
+        username: o.username,
+        instanceUrl: o.instanceUrl,
+        isDefault: !!o.isDefaultUsername || !!o.isDefaultDevHubUsername,
+      }));
+      res.json({ orgs });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_LIST_FAILED', message: err.message });
+    }
+  });
+
+  router.post('/setup/org/select', async (req, res) => {
+    const { alias } = req.body || {};
+    if (!alias || !/^[A-Za-z0-9._-]+$/.test(alias)) {
+      return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias required (alnum/._-)' });
+    }
+    try {
+      const display = JSON.parse(execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], { encoding: 'utf-8' }));
+      const r = display?.result || {};
+      routerState.selectedOrgAlias = alias;
+      routerState.selectedOrgUsername = r.username;
+      const myDomainUrl = r.instanceUrl || '';
+      const scrtBaseUrl = myDomainUrl.replace('.my.salesforce.com', '.my.salesforce-scrt.com');
+      res.json({ alias, username: r.username, orgId: r.id, instanceUrl: r.instanceUrl, myDomainUrl, scrtBaseUrl });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_DISPLAY_FAILED', message: err.message });
+    }
+  });
+
+  router.post('/setup/org/login', async (req, res) => {
+    const { alias } = req.body || {};
+    if (!alias || !/^[A-Za-z0-9._-]+$/.test(alias)) {
+      return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias required (alnum/._-)' });
+    }
+    const { randomUUID } = await import('node:crypto');
+    const runId = randomUUID();
+    logger.open(runId);
+    routerState.lastRunIds.orgLogin = runId;
+    const send = openSse(res);
+    const unsubscribe = logger.subscribe(runId, (ev) => send('log', ev));
+    send('log', { ts: new Date().toISOString(), level: 'info', step: 'org-login', action: 'prepare', message: `Launching sf org login web --alias ${alias}` });
+    try {
+      const { runCommand } = await import('../setup/sfRunner.js');
+      const { exitCode } = await runCommand({
+        command: 'sf',
+        args: ['org', 'login', 'web', '--alias', alias],
+        onLine: (line, stream) => logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'org-login', action: 'sf-exec', message: line }),
+      });
+      send('done', { success: exitCode === 0, runId, exitCode });
+    } catch (err) {
+      send('done', { success: false, runId, message: err.message });
+    } finally {
+      unsubscribe();
+      await logger.close(runId);
+      res.end();
+    }
+  });
+
+  router.get('/setup/cc/check', (req, res) => {
+    const name = String(req.query.name || '');
+    if (!/^[A-Za-z0-9_]+$/.test(name)) {
+      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'name must be alphanumeric + _' });
+    }
+    if (!routerState.selectedOrgAlias) {
+      return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
+    }
+    try {
+      // name and selectedOrgAlias are regex-validated elsewhere, but we still
+      // avoid shell interpolation and build SOQL via argv-only args.
+      const soql = `SELECT Id, DeveloperName FROM ContactCenter WHERE DeveloperName = '${name}'`;
+      const out = JSON.parse(execFileSync(
+        'sf',
+        ['data', 'query', '-q', soql, '--target-org', routerState.selectedOrgAlias, '--json'],
+        { encoding: 'utf-8' },
+      ));
+      const records = out?.result?.records || [];
+      res.json({ exists: records.length > 0, id: records[0]?.Id || null });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_QUERY_FAILED', message: err.message });
+    }
+  });
+
+  router.post('/setup/cc/deploy', async (req, res) => {
+    const { serviceEndpoint, developerName, masterLabel } = req.body || {};
+    if (!serviceEndpoint || !developerName || !masterLabel) {
+      return res.status(400).json({ error: true, code: 'MISSING_FIELDS', message: 'serviceEndpoint, developerName, masterLabel required' });
+    }
+    if (!/^https:\/\/[A-Za-z0-9.\-/_:]+$/.test(serviceEndpoint)) {
+      return res.status(400).json({ error: true, code: 'INVALID_ENDPOINT', message: 'serviceEndpoint must be https URL' });
+    }
+    if (!/^[A-Za-z0-9_]+$/.test(developerName)) {
+      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must be alphanumeric + _' });
+    }
+    if (!routerState.selectedOrgAlias) {
+      return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
+    }
+    const jwtPem = 'certs/jwt.pem';
+    if (!fs.existsSync(jwtPem)) {
+      return res.status(400).json({ error: true, code: 'NO_CERT', message: 'run certificate step first' });
+    }
+
+    const { randomUUID } = await import('node:crypto');
+    const { renderMetadata } = await import('../setup/metadataRenderer.js');
+    const { runCommand } = await import('../setup/sfRunner.js');
+    const { matchHint } = await import('../setup/hints.js');
+
+    const runId = randomUUID();
+    logger.open(runId);
+    routerState.lastRunIds.ccDeploy = runId;
+    const send = openSse(res);
+    const unsubscribe = logger.subscribe(runId, (ev) => send('log', ev));
+
+    let rendered = null;
+    try {
+      const pem = fs.readFileSync(jwtPem, 'utf-8');
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Rendering metadata (endpoint=${serviceEndpoint}, cc=${developerName})` });
+      rendered = renderMetadata({
+        templatesDir: path.resolve('metadata/voxcanvas-contact-center'),
+        values: {
+          SERVICE_ENDPOINT: serviceEndpoint,
+          CC_DEVELOPER_NAME: developerName,
+          CC_MASTER_LABEL: masterLabel,
+          PUBLIC_KEY_PEM: pem,
+        },
+      });
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `sf project deploy start --source-dir ${rendered.tmpDir} --target-org ${routerState.selectedOrgAlias}` });
+      const { exitCode } = await runCommand({
+        command: 'sf',
+        args: ['project', 'deploy', 'start', '--source-dir', rendered.tmpDir, '--target-org', routerState.selectedOrgAlias, '--json'],
+        onLine: (line, stream) => {
+          logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'deploy', action: 'sf-exec', message: line });
+          const hint = matchHint(line);
+          if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
+        },
+      });
+      send('done', { success: exitCode === 0, runId, exitCode, callCenterApiName: developerName });
+    } catch (err) {
+      logger.log(runId, { level: 'error', step: 'deploy', action: 'sf-exec', message: err.message });
+      const hint = matchHint(err.message);
+      if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
+      send('done', { success: false, runId, message: err.message });
+    } finally {
+      rendered?.cleanup();
+      unsubscribe();
+      await logger.close(runId);
+      res.end();
+    }
+  });
+
+  router.post('/setup/permset/assign', async (req, res) => {
+    const { permsetNames, targetUser } = req.body || {};
+    if (!Array.isArray(permsetNames) || permsetNames.length === 0) {
+      return res.status(400).json({ error: true, code: 'MISSING_PERMSETS', message: 'permsetNames array required' });
+    }
+    for (const n of permsetNames) {
+      if (!/^[A-Za-z0-9_]+$/.test(n)) {
+        return res.status(400).json({ error: true, code: 'INVALID_PERMSET', message: `bad permset: ${n}` });
+      }
+    }
+    if (targetUser && !/^[A-Za-z0-9._@+-]+$/.test(targetUser)) {
+      return res.status(400).json({ error: true, code: 'INVALID_USER', message: 'bad targetUser format' });
+    }
+    if (!routerState.selectedOrgAlias) {
+      return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
+    }
+
+    const { randomUUID } = await import('node:crypto');
+    const { runCommand } = await import('../setup/sfRunner.js');
+    const { matchHint } = await import('../setup/hints.js');
+
+    const runId = randomUUID();
+    logger.open(runId);
+    routerState.lastRunIds.permset = runId;
+    const send = openSse(res);
+    const unsubscribe = logger.subscribe(runId, (ev) => send('log', ev));
+
+    const results = [];
+    try {
+      for (const name of permsetNames) {
+        const args = ['org', 'assign', 'permset', '--name', name, '--target-org', routerState.selectedOrgAlias];
+        if (targetUser) args.push('--on-behalf-of', targetUser);
+        logger.log(runId, { level: 'info', step: 'permset', action: 'sf-exec', message: `sf ${args.join(' ')}` });
+        const { exitCode } = await runCommand({
+          command: 'sf',
+          args,
+          onLine: (line, stream) => {
+            logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'permset', action: 'sf-exec', message: line });
+            const hint = matchHint(line);
+            if (hint) logger.log(runId, { level: 'hint', step: 'permset', action: 'hint', message: hint });
+          },
+        });
+        results.push({ name, exitCode });
+      }
+      const allOk = results.every((r) => r.exitCode === 0);
+      send('done', { success: allOk, runId, results });
+    } catch (err) {
+      send('done', { success: false, runId, message: err.message });
+    } finally {
+      unsubscribe();
+      await logger.close(runId);
+      res.end();
+    }
+  });
+
+  router.post('/setup/ngrok/start', async (req, res) => {
+    const { port = 3030 } = req.body || {};
+    if (typeof port !== 'number' || port < 1 || port > 65535) {
+      return res.status(400).json({ error: true, code: 'INVALID_PORT', message: 'port must be 1-65535' });
+    }
+    const { randomUUID } = await import('node:crypto');
+    const { startNgrok } = await import('../setup/ngrokRunner.js');
+    const runId = randomUUID();
+    // Logger stays open for ngrok's lifetime (child keeps writing to stdout).
+    // It is closed by /setup/ngrok/stop or /setup/complete cleanup.
+    logger.open(runId);
+    routerState.lastRunIds.ngrok = runId;
+    try {
+      const { url, pid } = await startNgrok({ port, registry, logger, runId });
+      res.json({ url, pid, runId });
+    } catch (err) {
+      await logger.close(runId);
+      res.status(500).json({ error: true, code: 'NGROK_FAILED', message: err.message, runId });
+    }
+  });
+
+  router.post('/setup/ngrok/stop', async (req, res) => {
+    const stopped = await registry.stop('ngrok');
+    const runId = routerState.lastRunIds.ngrok;
+    if (runId) {
+      await logger.close(runId);
+      routerState.lastRunIds.ngrok = null;
+    }
+    res.json({ stopped });
+  });
+
+  router.get('/setup/processes', (req, res) => {
+    res.json({ processes: registry.list() });
+  });
+
+  router.post('/setup/processes/stop-all', async (req, res) => {
+    await registry.stopAll();
+    res.json({ stopped: true });
+  });
+
+  router.get('/setup/logs/:runId', (req, res) => {
+    const { runId } = req.params;
+    if (!/^[A-Za-z0-9-]+$/.test(runId)) {
+      return res.status(400).json({ error: true, code: 'INVALID_RUN_ID' });
+    }
+    const file = `logs/setup-${runId}.log`;
+    if (!fs.existsSync(file)) {
+      return res.status(404).json({ error: true, code: 'NOT_FOUND' });
+    }
+    res.type('text/plain').send(fs.readFileSync(file, 'utf-8'));
+  });
+
+  return { router, logger, registry };
 }

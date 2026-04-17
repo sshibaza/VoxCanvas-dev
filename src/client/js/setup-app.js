@@ -1,7 +1,9 @@
 const STEPS = [
   { id: 'welcome', label: 'Welcome' },
   { id: 'certificate', label: 'Certificate' },
+  { id: 'org-auth', label: 'Org' },
   { id: 'contact-center', label: 'Contact Center' },
+  { id: 'permset', label: 'Permissions' },
   { id: 'test', label: 'Connect' },
   { id: 'complete', label: 'Verify' },
 ];
@@ -87,115 +89,198 @@ function renderStep() {
       });
       break;
 
+    case 'org-auth':
+      container.innerHTML = `
+        <h2 class="text-lg font-bold mb-4">Select Salesforce Org</h2>
+        <div id="org-current" class="text-sm opacity-70 mb-4">Loading...</div>
+        <div class="space-y-3">
+          <button id="btn-use-default" class="w-full bg-sf-blue/40 hover:bg-sf-blue/60 px-4 py-2 rounded-md text-sm font-semibold hidden">Use default org</button>
+          <details class="bg-white/5 rounded-md">
+            <summary class="text-sm p-2 cursor-pointer">Pick a different org</summary>
+            <div id="org-list" class="p-2 space-y-1 text-sm"></div>
+          </details>
+          <details class="bg-white/5 rounded-md">
+            <summary class="text-sm p-2 cursor-pointer">Login a new org</summary>
+            <div class="p-2 space-y-2 text-sm">
+              <input id="new-alias" placeholder="alias (alnum/._-)" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
+              <button id="btn-login" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-4 py-1.5 rounded text-sm">Launch browser login</button>
+              <div id="login-log"></div>
+            </div>
+          </details>
+        </div>
+        <div class="flex justify-between mt-6">
+          <button onclick="prevStep()" class="opacity-50 hover:opacity-100 text-sm">&larr; Back</button>
+          <button id="btn-org-next" onclick="nextStep()" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-6 py-2 rounded-md text-sm font-semibold opacity-30 pointer-events-none">Next &rarr;</button>
+        </div>
+      `;
+
+      (async () => {
+        const info = document.getElementById('org-current');
+        const useBtn = document.getElementById('btn-use-default');
+        const r = await fetch('/api/setup/org').then((x) => x.json());
+        if (r.hasDefault) {
+          info.innerHTML = `<div>Default alias: <b>${r.alias}</b></div><div class="opacity-60 text-xs">${r.username} — ${r.orgId}</div><div class="opacity-60 text-xs mt-1">SCRT: ${r.scrtBaseUrl}</div>`;
+          useBtn.classList.remove('hidden');
+          useBtn.addEventListener('click', async () => {
+            await selectOrg(r.alias);
+          });
+        } else {
+          info.textContent = 'No default org. Pick or log in below.';
+        }
+        const list = await fetch('/api/setup/org/list').then((x) => x.json());
+        const listEl = document.getElementById('org-list');
+        listEl.innerHTML = (list.orgs || []).map((o) => `
+          <button data-alias="${o.alias || o.username}" class="block w-full text-left hover:bg-white/10 px-2 py-1 rounded">
+            ${o.alias || '(no alias)'} — <span class="opacity-60">${o.username}</span>
+          </button>
+        `).join('');
+        listEl.querySelectorAll('button[data-alias]').forEach((b) => {
+          b.addEventListener('click', () => selectOrg(b.dataset.alias));
+        });
+        document.getElementById('btn-login').addEventListener('click', async () => {
+          const alias = document.getElementById('new-alias').value.trim();
+          if (!alias) return;
+          const logPanel = createLogPanel('login-log');
+          await streamSse('/api/setup/org/login', { alias }, (event, data) => {
+            if (event === 'log') logPanel.append(data.line || data.message, data.level);
+            else if (event === 'done') {
+              logPanel.attachFile(data.runId);
+              if (data.success) selectOrg(alias);
+            }
+          });
+        });
+      })();
+
+      async function selectOrg(alias) {
+        const r = await fetch('/api/setup/org/select', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alias }),
+        }).then((x) => x.json());
+        if (r.error) { alert(r.message); return; }
+        state.orgAlias = alias;
+        state.orgId = r.orgId;
+        state.username = r.username;
+        state.scrtBaseUrl = r.scrtBaseUrl;
+        const btn = document.getElementById('btn-org-next');
+        btn.classList.remove('opacity-30', 'pointer-events-none');
+        document.getElementById('org-current').innerHTML = `<div class="text-sf-success">Selected: <b>${alias}</b> (${r.username})</div>`;
+      }
+      break;
+
     case 'contact-center':
       container.innerHTML = `
         <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
-          In your Salesforce org:<br>
-          1. Deploy the Contact Center metadata (see README)<br>
-          2. Setup &rarr; Contact Centers &rarr; (VoxCanvas CC) &rarr; paste the public key below into the <strong>Public Key</strong> field<br>
-          3. Fill the tenant fields below
+          ウィザードが <code>ConversationVendorInfo</code> と <code>ContactCenter</code> を Metadata API で deploy します。
+          Public Key(jwt.pem)は Contact Center レコードに自動登録されます。
         </div>
 
-        <div class="mb-6">
-          <div class="flex items-center justify-between mb-2">
-            <label class="text-xs opacity-50">JWT Public Key (paste into Contact Center)</label>
-            <button id="btn-copy-pubkey" class="text-xs bg-sf-blue/30 hover:bg-sf-blue/50 px-3 py-1 rounded transition-colors">Copy</button>
+        <div class="space-y-3 mb-4">
+          <div>
+            <label class="text-xs opacity-60 block mb-1">Service Endpoint URL (ngrok 等)</label>
+            <div class="flex gap-2">
+              <input id="svc-endpoint" class="flex-1 bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" placeholder="https://xxxx.ngrok.io" />
+              <button id="btn-ngrok" class="bg-sf-blue/30 hover:bg-sf-blue/50 px-3 rounded text-xs">Launch ngrok</button>
+            </div>
+            <div id="ngrok-status" class="text-xs opacity-60 mt-1"></div>
           </div>
-          <textarea id="pubkey-display" readonly rows="8"
-            class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-xs font-mono focus:outline-none resize-none"
-            placeholder="Loading..."></textarea>
-          <div id="pubkey-copy-status" class="text-xs mt-1 opacity-0 transition-opacity"></div>
+          <div>
+            <label class="text-xs opacity-60 block mb-1">CC Developer Name</label>
+            <input id="cc-dev-name" value="VoxCanvas_CC" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
+          </div>
+          <div>
+            <label class="text-xs opacity-60 block mb-1">CC Master Label</label>
+            <input id="cc-label" value="VoxCanvas Contact Center" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm" />
+          </div>
         </div>
 
-        <div class="space-y-3 mb-6">
-          <div class="text-xs font-semibold opacity-70 mb-1">Tenant / Contact Center</div>
-          <div class="text-[0.65rem] opacity-40 mb-2 leading-relaxed">
-            Find SCRT Base URL in Setup &rarr; Service Cloud Voice &rarr; Partner Telephony.
-            Org ID is in Setup &rarr; Company Information.
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">SCRT2 Base URL</label>
-            <input id="setup-scrt-base-url" type="text" placeholder="https://xxx.my.salesforce-scrt.com"
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">Salesforce Org ID</label>
-            <input id="setup-org-id" type="text" placeholder="00D..."
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">Call Center API Name</label>
-            <input id="setup-call-center-api-name" type="text" placeholder="VoxCanvas_CallCenter"
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">Call Center Phone (optional)</label>
-            <input id="setup-call-center-phone" type="text" placeholder="0120-000-000"
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm focus:border-sf-blue focus:outline-none" />
-          </div>
-        </div>
-        <div class="flex justify-between">
-          <button onclick="prevStep()" class="opacity-50 hover:opacity-100 text-sm transition-colors">&larr; Back</button>
-          <button onclick="nextStep()" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-6 py-2 rounded-md text-sm font-semibold transition-colors">Next &rarr;</button>
+        <button id="btn-deploy" class="w-full bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-2 rounded font-semibold text-sm">Deploy</button>
+        <div id="deploy-log"></div>
+
+        <div class="flex justify-between mt-6">
+          <button onclick="prevStep()" class="opacity-50 hover:opacity-100 text-sm">&larr; Back</button>
+          <button id="btn-cc-next" onclick="nextStep()" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-6 py-2 rounded-md text-sm font-semibold opacity-30 pointer-events-none">Next &rarr;</button>
         </div>
       `;
 
-      // Fetch and display the JWT public key.
-      (async () => {
-        const pemTextarea = document.getElementById('pubkey-display');
-        try {
-          const res = await fetch('/api/setup/public-key');
-          if (res.ok) {
-            pemTextarea.value = await res.text();
-          } else if (res.status === 404) {
-            pemTextarea.value = 'Public key not generated yet. Go back to the Certificate step and generate certificates first.';
-          } else {
-            pemTextarea.value = `Error loading public key (HTTP ${res.status}).`;
-          }
-        } catch (err) {
-          pemTextarea.value = `Error loading public key: ${err.message}`;
+      document.getElementById('btn-ngrok').addEventListener('click', async () => {
+        const status = document.getElementById('ngrok-status');
+        status.textContent = 'Starting ngrok...';
+        const r = await fetch('/api/setup/ngrok/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ port: 3030 }),
+        }).then((x) => x.json());
+        if (r.error) {
+          status.textContent = `Error: ${r.message}`;
+          return;
         }
-      })();
-
-      // Copy button: clipboard API with textarea-select fallback.
-      document.getElementById('btn-copy-pubkey').addEventListener('click', async () => {
-        const pemTextarea = document.getElementById('pubkey-display');
-        const status = document.getElementById('pubkey-copy-status');
-        const showStatus = (text, isError) => {
-          status.textContent = text;
-          status.className = `text-xs mt-1 transition-opacity ${isError ? 'text-sf-error' : 'text-sf-success'} opacity-100`;
-          setTimeout(() => { status.className = 'text-xs mt-1 opacity-0 transition-opacity'; }, 2000);
-        };
-        try {
-          await navigator.clipboard.writeText(pemTextarea.value);
-          showStatus('Copied to clipboard', false);
-        } catch {
-          pemTextarea.select();
-          showStatus('Clipboard blocked — press Cmd/Ctrl-C to copy', true);
-        }
+        document.getElementById('svc-endpoint').value = r.url;
+        state.ngrokStarted = true;
+        status.textContent = `Tunnel: ${r.url} (pid ${r.pid})`;
       });
 
-      // Restore previously-entered tenant values on Back navigation.
-      const setIfPresent = (id, value) => {
-        const el = document.getElementById(id);
-        if (el && value) el.value = value;
-      };
-      setIfPresent('setup-scrt-base-url', state.scrtBaseUrl);
-      setIfPresent('setup-org-id', state.orgId);
-      setIfPresent('setup-call-center-api-name', state.callCenterApiName);
-      setIfPresent('setup-call-center-phone', state.callCenterPhone);
+      document.getElementById('btn-deploy').addEventListener('click', async () => {
+        const serviceEndpoint = document.getElementById('svc-endpoint').value.trim();
+        const developerName = document.getElementById('cc-dev-name').value.trim();
+        const masterLabel = document.getElementById('cc-label').value.trim();
 
-      // Persist field edits into state so they survive re-renders.
-      const bind = (id, key) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('input', () => { state[key] = el.value.trim(); });
-      };
-      bind('setup-scrt-base-url', 'scrtBaseUrl');
-      bind('setup-org-id', 'orgId');
-      bind('setup-call-center-api-name', 'callCenterApiName');
-      bind('setup-call-center-phone', 'callCenterPhone');
+        const check = await fetch(`/api/setup/cc/check?name=${encodeURIComponent(developerName)}`).then((x) => x.json());
+        if (check.exists) {
+          if (!confirm(`Contact Center "${developerName}" already exists (Id=${check.id}). Overwrite?`)) return;
+        }
+
+        const logPanel = createLogPanel('deploy-log');
+        await streamSse('/api/setup/cc/deploy', { serviceEndpoint, developerName, masterLabel }, (event, data) => {
+          if (event === 'log') logPanel.append(data.line || data.message, data.level);
+          else if (event === 'done') {
+            logPanel.attachFile(data.runId);
+            if (data.success) {
+              state.callCenterApiName = data.callCenterApiName;
+              document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
+            }
+          }
+        });
+      });
+      break;
+
+    case 'permset':
+      container.innerHTML = `
+        <h2 class="text-lg font-bold mb-4">Assign Permission Sets</h2>
+        <div class="text-sm opacity-60 mb-4">
+          Admin と Agent の Permission Set を割り当てます。
+        </div>
+        <div class="space-y-2 mb-4 text-sm">
+          <div class="bg-white/5 px-3 py-2 rounded"><code>ContactCenterAdminExternalTelephony</code></div>
+          <div class="bg-white/5 px-3 py-2 rounded"><code>ContactCenterAgentExternalTelephony</code></div>
+        </div>
+        <div class="mb-4">
+          <label class="text-xs opacity-60 block mb-1">Target User (optional)</label>
+          <input id="permset-user" placeholder="${state.username || 'connected user'}" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
+        </div>
+        <button id="btn-assign" class="w-full bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-2 rounded font-semibold text-sm">Assign</button>
+        <div id="permset-log"></div>
+        <div class="flex justify-between mt-6">
+          <button onclick="prevStep()" class="opacity-50 hover:opacity-100 text-sm">&larr; Back</button>
+          <button id="btn-permset-next" onclick="nextStep()" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-6 py-2 rounded-md text-sm font-semibold opacity-30 pointer-events-none">Next &rarr;</button>
+        </div>
+      `;
+
+      document.getElementById('btn-assign').addEventListener('click', async () => {
+        const targetUser = document.getElementById('permset-user').value.trim() || undefined;
+        const logPanel = createLogPanel('permset-log');
+        await streamSse('/api/setup/permset/assign', {
+          permsetNames: ['ContactCenterAdminExternalTelephony', 'ContactCenterAgentExternalTelephony'],
+          targetUser,
+        }, (event, data) => {
+          if (event === 'log') logPanel.append(data.line || data.message, data.level);
+          else if (event === 'done') {
+            logPanel.attachFile(data.runId);
+            if (data.success) {
+              document.getElementById('btn-permset-next').classList.remove('opacity-30', 'pointer-events-none');
+            }
+          }
+        });
+      });
       break;
 
     case 'test':
@@ -213,49 +298,90 @@ function renderStep() {
       document.getElementById('btn-test-connection').addEventListener('click', async () => {
         const resultsDiv = document.getElementById('test-results');
         resultsDiv.classList.remove('hidden');
-        resultsDiv.innerHTML = '<div class="text-sm opacity-50">Saving configuration...</div>';
 
         const scrtBaseUrl = state.scrtBaseUrl || '';
         const orgId = state.orgId || '';
         const callCenterApiName = state.callCenterApiName || '';
-        const callCenterPhone = state.callCenterPhone || '';
 
         if (!scrtBaseUrl || !orgId || !callCenterApiName) {
           resultsDiv.innerHTML =
-            '<div class="text-sm text-sf-error">&#10007; Go back and fill in all required fields.</div>';
+            '<div class="text-sm text-sf-error">&#10007; Prior steps incomplete (Org / Contact Center not set).</div>';
           return;
         }
 
-        const saveResult = await fetch('/api/setup/complete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            scrtBaseUrl, orgId, callCenterApiName, callCenterPhone,
-          }),
-        }).then((r) => r.json());
-
-        if (saveResult.success) {
-          resultsDiv.innerHTML = `
-            <div class="flex items-center gap-2 text-sm"><span class="text-sf-success">&#10003;</span> Configuration saved</div>
-            <div class="flex items-center gap-2 text-sm"><span class="text-sf-orange">&#9888;</span> Restart server to test JWT auth</div>
-          `;
-          const btn = document.getElementById('btn-test-next');
-          btn.classList.remove('opacity-30', 'pointer-events-none');
-        } else {
-          resultsDiv.innerHTML = `<div class="text-sm text-sf-error">&#10007; ${saveResult.message}</div>`;
-        }
+        resultsDiv.innerHTML = `
+          <div class="flex items-center gap-2 text-sm"><span class="text-sf-success">&#10003;</span> Org: ${state.orgAlias}</div>
+          <div class="flex items-center gap-2 text-sm"><span class="text-sf-success">&#10003;</span> SCRT URL: <code class="text-xs">${scrtBaseUrl}</code></div>
+          <div class="flex items-center gap-2 text-sm"><span class="text-sf-success">&#10003;</span> Contact Center: ${callCenterApiName}</div>
+          <div class="flex items-center gap-2 text-sm mt-2"><span class="text-sf-orange">&#9888;</span> JWT auth is tested after .env save in the next step.</div>
+        `;
+        const btn = document.getElementById('btn-test-next');
+        btn.classList.remove('opacity-30', 'pointer-events-none');
       });
       break;
 
     case 'complete':
       container.innerHTML = `
-        <div class="text-center py-8">
-          <div class="text-4xl mb-4">&#10003;</div>
-          <h2 class="text-xl font-bold text-sf-success mb-2">VoxCanvas is ready!</h2>
-          <p class="text-sm opacity-50 mb-6">Configuration saved. Restart the server and open the dashboard.</p>
-          <a href="/" class="inline-block bg-sf-blue/40 hover:bg-sf-blue/60 px-8 py-3 rounded-lg text-sm font-bold transition-colors">Open Dashboard &rarr;</a>
+        <h2 class="text-lg font-bold mb-4">Review & Finish</h2>
+        <div class="text-sm opacity-70 space-y-1 mb-4">
+          <div>Org Alias: <b>${state.orgAlias || '(none)'}</b></div>
+          <div>Username: ${state.username || '-'}</div>
+          <div>Org ID: ${state.orgId || '-'}</div>
+          <div>SCRT Base URL: <code>${state.scrtBaseUrl || '-'}</code></div>
+          <div>Contact Center: ${state.callCenterApiName || '-'}</div>
         </div>
+
+        <div class="mb-4">
+          <label class="text-xs opacity-60 block mb-1">Call Center Phone (optional)</label>
+          <input id="cc-phone" placeholder="0120-000-000" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
+        </div>
+
+        <div class="bg-white/5 rounded p-3 mb-4">
+          <div class="text-xs font-semibold opacity-70 mb-2">Cleanup</div>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="chk-logs" checked> Delete setup logs</label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="chk-tmp" checked> Delete tmp metadata dirs</label>
+          <div id="process-list" class="mt-2 text-sm"></div>
+        </div>
+
+        <button id="btn-finish" class="w-full bg-sf-success/50 hover:bg-sf-success/70 px-4 py-2 rounded font-semibold text-sm">Save & Finish</button>
+        <div id="finish-result" class="mt-3 text-sm"></div>
       `;
+
+      (async () => {
+        const procs = await fetch('/api/setup/processes').then((x) => x.json());
+        const procList = document.getElementById('process-list');
+        if (procs.processes?.length) {
+          procList.innerHTML = '<div class="text-xs opacity-60 mb-1">Wizard-started processes:</div>' +
+            procs.processes.map((p) => `<label class="flex items-center gap-2"><input type="checkbox" class="proc-chk" data-name="${p.name}" checked> ${p.label} (pid ${p.pid})</label>`).join('');
+        }
+      })();
+
+      document.getElementById('btn-finish').addEventListener('click', async () => {
+        const stopProcesses = [...document.querySelectorAll('.proc-chk')]
+          .filter((c) => c.checked).map((c) => c.dataset.name);
+        const body = {
+          scrtBaseUrl: state.scrtBaseUrl,
+          orgId: state.orgId,
+          callCenterApiName: state.callCenterApiName,
+          callCenterPhone: document.getElementById('cc-phone').value.trim(),
+          cleanup: {
+            deleteLogs: document.getElementById('chk-logs').checked,
+            deleteTmp: document.getElementById('chk-tmp').checked,
+            stopProcesses,
+          },
+        };
+        const r = await fetch('/api/setup/complete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).then((x) => x.json());
+        const out = document.getElementById('finish-result');
+        if (r.success) {
+          out.innerHTML = `<div class="text-sf-success">Done. ${r.cleanup.logsDeleted} logs, ${r.cleanup.tmpDirsDeleted} tmp dirs deleted, stopped: ${r.cleanup.processesStopped.join(', ') || 'none'}.</div>
+            <a href="/" class="underline text-sf-blue">Open Dashboard</a>`;
+        } else {
+          out.innerHTML = `<div class="text-sf-error">${r.message}</div>`;
+        }
+      });
       break;
   }
 }
@@ -279,3 +405,72 @@ window.nextStep = nextStep;
 window.prevStep = prevStep;
 
 init();
+
+function createLogPanel(containerId) {
+  const panel = document.getElementById(containerId);
+  panel.innerHTML = `
+    <div class="bg-black/40 border border-white/10 rounded-md mt-3">
+      <div class="flex items-center justify-between px-3 py-1.5 border-b border-white/10">
+        <span class="text-xs opacity-60">Log</span>
+        <div class="flex gap-2">
+          <button class="text-xs opacity-60 hover:opacity-100" data-act="copy">Copy</button>
+          <a class="text-xs opacity-60 hover:opacity-100 hidden" data-act="open">File</a>
+        </div>
+      </div>
+      <pre class="text-[0.7rem] font-mono px-3 py-2 max-h-60 overflow-auto" data-log></pre>
+    </div>`;
+  const pre = panel.querySelector('[data-log]');
+  const copy = panel.querySelector('[data-act="copy"]');
+  const openLink = panel.querySelector('[data-act="open"]');
+  const append = (line, level) => {
+    const div = document.createElement('div');
+    const colors = { error: 'text-sf-error', warn: 'text-yellow-400', hint: 'text-sf-blue font-semibold', info: 'opacity-80' };
+    div.className = colors[level] || 'opacity-70';
+    div.textContent = line;
+    pre.appendChild(div);
+    pre.scrollTop = pre.scrollHeight;
+  };
+  copy.addEventListener('click', () => {
+    navigator.clipboard.writeText(pre.innerText);
+  });
+  const attachFile = (runId) => {
+    openLink.href = `/api/setup/logs/${runId}`;
+    openLink.classList.remove('hidden');
+    openLink.target = '_blank';
+  };
+  return { append, attachFile };
+}
+
+async function streamSse(url, body, onEvent) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.body) throw new Error('no body');
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split('\n\n');
+    buf = parts.pop();
+    for (const part of parts) {
+      const lines = part.split('\n');
+      let event = 'message';
+      let data = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) event = line.slice(7);
+        else if (line.startsWith('data: ')) data += line.slice(6);
+      }
+      try {
+        onEvent(event, JSON.parse(data));
+      } catch { /* partial */ }
+    }
+  }
+}
+
+window.createLogPanel = createLogPanel;
+window.streamSse = streamSse;
