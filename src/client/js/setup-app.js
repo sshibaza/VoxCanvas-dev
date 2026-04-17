@@ -1,7 +1,7 @@
 const STEPS = [
   { id: 'welcome', label: 'Welcome' },
   { id: 'certificate', label: 'Certificate' },
-  { id: 'connected-app', label: 'Connected App' },
+  { id: 'contact-center', label: 'Contact Center' },
   { id: 'test', label: 'Connect' },
   { id: 'complete', label: 'Verify' },
 ];
@@ -80,48 +80,39 @@ function renderStep() {
         if (result.success) {
           document.getElementById('cert-result').classList.remove('hidden');
           document.getElementById('cert-result').innerHTML =
-            '&#10003; Certificates generated. <a href="/api/setup/certificate/download" class="underline text-sf-blue">Download jwt.pem</a> for the Connected App.';
+            '&#10003; Certificates generated. Continue to the next step to register the public key on your Contact Center.';
           const btn = document.getElementById('btn-cert-next');
           btn.classList.remove('opacity-30', 'pointer-events-none');
         }
       });
       break;
 
-    case 'connected-app':
+    case 'contact-center':
       container.innerHTML = `
-        <h2 class="text-lg font-bold mb-4">Connected App &amp; Tenant Configuration</h2>
+        <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
           In your Salesforce org:<br>
-          1. Setup &rarr; App Manager &rarr; New Connected App<br>
-          2. Enable OAuth, select scopes: <code class="bg-white/10 px-1 rounded text-xs">api</code>, <code class="bg-white/10 px-1 rounded text-xs">refresh_token</code><br>
-          3. Upload the <a href="/api/setup/certificate/download" class="underline text-sf-blue">jwt.pem</a> certificate<br>
-          4. Fill the Connected App and tenant fields below
+          1. Deploy the Contact Center metadata (see README)<br>
+          2. Setup &rarr; Contact Centers &rarr; (VoxCanvas CC) &rarr; paste the public key below into the <strong>Public Key</strong> field<br>
+          3. Fill the tenant fields below
         </div>
+
+        <div class="mb-6">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs opacity-50">JWT Public Key (paste into Contact Center)</label>
+            <button id="btn-copy-pubkey" class="text-xs bg-sf-blue/30 hover:bg-sf-blue/50 px-3 py-1 rounded transition-colors">Copy</button>
+          </div>
+          <textarea id="pubkey-display" readonly rows="8"
+            class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-xs font-mono focus:outline-none resize-none"
+            placeholder="Loading..."></textarea>
+          <div id="pubkey-copy-status" class="text-xs mt-1 opacity-0 transition-opacity"></div>
+        </div>
+
         <div class="space-y-3 mb-6">
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">Consumer Key (Client ID)</label>
-            <input id="setup-consumer-key" type="text" placeholder="3MVG9..."
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">Salesforce Username</label>
-            <input id="setup-username" type="text" placeholder="admin@myorg.com"
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm focus:border-sf-blue focus:outline-none" />
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">Login URL</label>
-            <div class="flex gap-2">
-              <button class="login-url-btn bg-sf-blue/30 px-3 py-1.5 rounded text-xs font-medium" data-url="https://login.salesforce.com">login.salesforce.com</button>
-              <button class="login-url-btn bg-white/10 px-3 py-1.5 rounded text-xs font-medium" data-url="https://test.salesforce.com">test.salesforce.com</button>
-            </div>
-            <input id="setup-login-url" type="hidden" value="https://login.salesforce.com" />
-          </div>
-          <div class="border-t border-white/[0.06] pt-3 mt-4">
-            <div class="text-xs font-semibold opacity-70 mb-2">Tenant / Contact Center</div>
-            <div class="text-[0.65rem] opacity-40 mb-2 leading-relaxed">
-              Find SCRT Base URL in Setup &rarr; Service Cloud Voice &rarr; Partner Telephony.
-              Org ID is in Setup &rarr; Company Information.
-            </div>
+          <div class="text-xs font-semibold opacity-70 mb-1">Tenant / Contact Center</div>
+          <div class="text-[0.65rem] opacity-40 mb-2 leading-relaxed">
+            Find SCRT Base URL in Setup &rarr; Service Cloud Voice &rarr; Partner Telephony.
+            Org ID is in Setup &rarr; Company Information.
           </div>
           <div>
             <label class="text-xs opacity-50 mb-1 block">SCRT2 Base URL</label>
@@ -149,48 +140,58 @@ function renderStep() {
           <button onclick="nextStep()" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-6 py-2 rounded-md text-sm font-semibold transition-colors">Next &rarr;</button>
         </div>
       `;
-      document.querySelectorAll('.login-url-btn').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('.login-url-btn').forEach((b) => (b.className = 'login-url-btn bg-white/10 px-3 py-1.5 rounded text-xs font-medium'));
-          btn.className = 'login-url-btn bg-sf-blue/30 px-3 py-1.5 rounded text-xs font-medium';
-          document.getElementById('setup-login-url').value = btn.dataset.url;
-          state.loginUrl = btn.dataset.url;
-        });
+
+      // Fetch and display the JWT public key.
+      (async () => {
+        const pemTextarea = document.getElementById('pubkey-display');
+        try {
+          const res = await fetch('/api/setup/public-key');
+          if (res.ok) {
+            pemTextarea.value = await res.text();
+          } else if (res.status === 404) {
+            pemTextarea.value = 'Public key not generated yet. Go back to the Certificate step and generate certificates first.';
+          } else {
+            pemTextarea.value = `Error loading public key (HTTP ${res.status}).`;
+          }
+        } catch (err) {
+          pemTextarea.value = `Error loading public key: ${err.message}`;
+        }
+      })();
+
+      // Copy button: clipboard API with textarea-select fallback.
+      document.getElementById('btn-copy-pubkey').addEventListener('click', async () => {
+        const pemTextarea = document.getElementById('pubkey-display');
+        const status = document.getElementById('pubkey-copy-status');
+        const showStatus = (text, isError) => {
+          status.textContent = text;
+          status.className = `text-xs mt-1 transition-opacity ${isError ? 'text-sf-error' : 'text-sf-success'} opacity-100`;
+          setTimeout(() => { status.className = 'text-xs mt-1 opacity-0 transition-opacity'; }, 2000);
+        };
+        try {
+          await navigator.clipboard.writeText(pemTextarea.value);
+          showStatus('Copied to clipboard', false);
+        } catch {
+          pemTextarea.select();
+          showStatus('Clipboard blocked — press Cmd/Ctrl-C to copy', true);
+        }
       });
 
-      // Restore previously-entered values if the user navigates back.
+      // Restore previously-entered tenant values on Back navigation.
       const setIfPresent = (id, value) => {
         const el = document.getElementById(id);
         if (el && value) el.value = value;
       };
-      setIfPresent('setup-consumer-key', state.consumerKey);
-      setIfPresent('setup-username', state.username);
       setIfPresent('setup-scrt-base-url', state.scrtBaseUrl);
       setIfPresent('setup-org-id', state.orgId);
       setIfPresent('setup-call-center-api-name', state.callCenterApiName);
       setIfPresent('setup-call-center-phone', state.callCenterPhone);
 
-      // Re-sync the login URL button highlight + hidden input so the UI
-      // reflects state.loginUrl (otherwise Back navigation resets the
-      // visible selection to login.salesforce.com while state still holds
-      // test.salesforce.com, and the POST uses state).
-      if (state.loginUrl) {
-        document.querySelectorAll('.login-url-btn').forEach((b) => {
-          b.className = b.dataset.url === state.loginUrl
-            ? 'login-url-btn bg-sf-blue/30 px-3 py-1.5 rounded text-xs font-medium'
-            : 'login-url-btn bg-white/10 px-3 py-1.5 rounded text-xs font-medium';
-        });
-        document.getElementById('setup-login-url').value = state.loginUrl;
-      }
-
-      // Capture each field into `state` so it survives re-renders.
+      // Persist field edits into state so they survive re-renders.
       const bind = (id, key) => {
         const el = document.getElementById(id);
         if (!el) return;
         el.addEventListener('input', () => { state[key] = el.value.trim(); });
       };
-      bind('setup-consumer-key', 'consumerKey');
-      bind('setup-username', 'username');
       bind('setup-scrt-base-url', 'scrtBaseUrl');
       bind('setup-org-id', 'orgId');
       bind('setup-call-center-api-name', 'callCenterApiName');
@@ -214,15 +215,12 @@ function renderStep() {
         resultsDiv.classList.remove('hidden');
         resultsDiv.innerHTML = '<div class="text-sm opacity-50">Saving configuration...</div>';
 
-        const consumerKey = state.consumerKey || '';
-        const username = state.username || '';
-        const loginUrl = state.loginUrl || 'https://login.salesforce.com';
         const scrtBaseUrl = state.scrtBaseUrl || '';
         const orgId = state.orgId || '';
         const callCenterApiName = state.callCenterApiName || '';
         const callCenterPhone = state.callCenterPhone || '';
 
-        if (!consumerKey || !username || !scrtBaseUrl || !orgId || !callCenterApiName) {
+        if (!scrtBaseUrl || !orgId || !callCenterApiName) {
           resultsDiv.innerHTML =
             '<div class="text-sm text-sf-error">&#10007; Go back and fill in all required fields.</div>';
           return;
@@ -232,7 +230,6 @@ function renderStep() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            consumerKey, username, loginUrl,
             scrtBaseUrl, orgId, callCenterApiName, callCenterPhone,
           }),
         }).then((r) => r.json());
