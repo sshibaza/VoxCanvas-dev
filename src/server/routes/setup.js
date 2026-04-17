@@ -517,5 +517,5 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     res.type('text/plain').send(fs.readFileSync(file, 'utf-8'));
   });
 
-  return router;
+  return { router, logger, registry };
 }

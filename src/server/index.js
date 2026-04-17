@@ -35,7 +35,15 @@ app.use('/api', createTenantRouter(scrt2Client));
 app.use('/api', createVoiceCallRouter(scrt2Client));
 app.use('/api', createTranscriptionRouter(scrt2Client));
 app.use('/api', createVoicemailRouter(scrt2Client));
-app.use('/api', createSetupRouter(scrt2Client));
+const { router: setupRouter, registry: setupRegistry } = createSetupRouter(scrt2Client);
+app.use('/api', setupRouter);
+
+function shutdown() {
+  console.log('Shutting down, stopping wizard-spawned processes...');
+  setupRegistry.stopAll().finally(() => process.exit(0));
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 // Any /api/* path that nothing matched above is a 404. Without this,
 // Express 5's catch-all below would either hang (no response) or return

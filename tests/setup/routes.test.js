@@ -8,7 +8,8 @@ function makeApp() {
   const app = express();
   app.use(express.json());
   const dummyClient = { configure: () => {} };
-  app.use('/api', createSetupRouter(dummyClient));
+  const { router } = createSetupRouter(dummyClient);
+  app.use('/api', router);
   return app;
 }
 
