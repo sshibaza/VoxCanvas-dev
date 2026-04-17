@@ -16,7 +16,7 @@ npm run dev       # Start development server
 
 ## Setup
 
-Setup Wizard が `sf` CLI を呼び出して Contact Center 作成・Permission Set 割り当て・.env 書き出しまで完結させます。
+Setup Wizard が `sf` CLI を呼び出して vendor metadata のデプロイ・Permission Set 割り当て・.env 書き出しまで自動化します。ContactCenter レコード本体は Salesforce の API 制約により Setup UI からの手動作成となりますが、ウィザードが DeveloperName で自動検出して次ステップへ進みます。
 
 ### 前提
 
@@ -49,7 +49,7 @@ npm run dev
 1. **Welcome** — 環境チェック(node / sf / openssl / ngrok)
 2. **Certificate** — HTTPS + JWT 証明書を生成
 3. **Org** — `sf` 既定 Org を使用 or 別の alias を選択 or 新規ログイン
-4. **Contact Center** — Endpoint mode を選択(Local or Tunnel)→ Deploy
+4. **Contact Center** — Endpoint mode を選択(Local or Tunnel)→ Deploy(vendor metadata)→ 画面の指示に従って Setup → Contact Centers → New から ContactCenter を作成 → Verify
 5. **Permissions** — Admin + Agent permset を割り当て
 6. **Connect** — 設定サマリの疎通確認
 7. **Verify** — 設定サマリ確認 + cleanup 実行 + `.env` 保存

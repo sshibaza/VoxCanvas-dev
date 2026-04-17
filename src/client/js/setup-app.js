@@ -183,6 +183,7 @@ function renderStep() {
         state.orgId = r.orgId;
         state.username = r.username;
         state.scrtBaseUrl = r.scrtBaseUrl;
+        state.instanceUrl = r.instanceUrl;
         const btn = document.getElementById('btn-org-next');
         btn.classList.remove('opacity-30', 'pointer-events-none');
         document.getElementById('org-current').innerHTML = `<div class="text-sf-success">Selected: <b>${alias}</b> (${r.username})</div>`;
@@ -194,8 +195,9 @@ function renderStep() {
       container.innerHTML = `
         <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
-          ウィザードが <code>ConversationVendorInfo</code> と <code>ContactCenter</code> の Metadata API deploy を自動で実行します。
-          Public Key(jwt.pem)は Contact Center レコードに自動登録されます。
+          ウィザードが <code>ConversationVendorInfo</code>(vendor)を自動デプロイします。
+          ContactCenter レコード自体は Salesforce の REST / Metadata API では作成できないため、
+          Setup UI から手動で作成いただき、ウィザードが自動検出します。
         </div>
 
         <div class="bg-white/5 border border-white/10 rounded p-3 mb-4 text-sm">
@@ -360,6 +362,77 @@ function renderStep() {
       // Default: Local mode
       enterLocalMode();
 
+      // After vendor deploy succeeds, swap the lower half of the panel
+      // for a guided "create the ContactCenter in Setup UI" instruction
+      // block with a Verify button that polls /setup/cc/check by
+      // DeveloperName. Keeps the page compact without adding an extra
+      // wizard step.
+      function renderManualCreatePanel(developerName, masterLabel) {
+        const mount = document.getElementById('deploy-log');
+        const instanceUrl = state.instanceUrl || '';
+        const setupUrl = instanceUrl
+          ? `${instanceUrl.replace(/\/$/, '')}/lightning/setup/ContactCenters/home`
+          : 'https://<your-org>/lightning/setup/ContactCenters/home';
+        const openBtn = instanceUrl
+          ? `<a href="${setupUrl}" target="_blank" class="inline-block bg-sf-blue/50 hover:bg-sf-blue/70 px-3 py-1.5 rounded text-sm font-semibold">Open Setup → Contact Centers &#8599;</a>`
+          : `<div class="text-xs opacity-60">Salesforce Setup → Service Cloud Voice → Contact Centers → <b>New</b></div>`;
+        mount.insertAdjacentHTML('beforeend', `
+          <div id="manual-cc-panel" class="mt-6 bg-white/5 border border-sf-blue/30 rounded p-4 text-sm">
+            <div class="font-semibold mb-2">Next: Create the ContactCenter record (manual, ~1 min)</div>
+            <div class="opacity-70 text-xs leading-relaxed mb-3">
+              <code>ConversationVendorInfo</code>(vendor)のデプロイは完了しました。Salesforce の仕様上
+              <code>ContactCenter</code> レコードは API から作成できないため、以下の手順で Setup UI から作成してください。
+              作成後、ウィザードが DeveloperName で自動検出します。
+            </div>
+            <ol class="list-decimal ml-5 space-y-2 text-xs mb-4">
+              <li>${openBtn} を開き <b>[New Contact Center]</b></li>
+              <li>Telephony Vendor で <code>VoxCanvas Partner Telephony</code> を選び <b>[Next]</b></li>
+              <li>以下の値を入力して <b>[Save]</b>:
+                <div class="mt-1 space-y-1">
+                  <div>Contact Center Name: <code class="bg-black/40 px-1.5 rounded">${masterLabel}</code></div>
+                  <div>API Name: <code class="bg-black/40 px-1.5 rounded">${developerName}</code></div>
+                </div>
+              </li>
+              <li>作成後、作成した Contact Center の <b>[Edit]</b> から <b>Public Key</b> 欄に
+                Step 3 の <code>jwt.pem</code> の内容を貼り付けて <b>[Save]</b></li>
+            </ol>
+            <div class="flex items-center gap-3">
+              <button id="btn-verify-cc" class="bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-1.5 rounded text-sm font-semibold">Verify</button>
+              <div id="verify-status" class="text-xs opacity-70"></div>
+            </div>
+          </div>
+        `);
+
+        const statusEl = document.getElementById('verify-status');
+        const verifyBtn = document.getElementById('btn-verify-cc');
+        let polling = false;
+
+        async function verifyOnce() {
+          statusEl.innerHTML = '<span class="opacity-70">Checking...</span>';
+          try {
+            const r = await fetch(`/api/setup/cc/check?name=${encodeURIComponent(developerName)}`).then((x) => x.json());
+            if (r.exists) {
+              statusEl.innerHTML = `<span class="text-sf-success">&#10003; ContactCenter found (Id=${r.id})</span>`;
+              state.callCenterApiName = developerName;
+              document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
+              verifyBtn.disabled = true;
+              verifyBtn.classList.add('opacity-50', 'pointer-events-none');
+              return true;
+            }
+            statusEl.innerHTML = `<span class="text-sf-error">&#10007; Not found yet. Create it in Setup UI then click Verify again.</span>`;
+            return false;
+          } catch (err) {
+            statusEl.innerHTML = `<span class="text-sf-error">Verify failed: ${err.message}</span>`;
+            return false;
+          }
+        }
+
+        verifyBtn.addEventListener('click', verifyOnce);
+        // One initial silent check — maybe the admin already created it
+        // before clicking Deploy (re-running the wizard, etc.).
+        verifyOnce();
+      }
+
       document.getElementById('btn-deploy').addEventListener('click', async () => {
         if (!state.serviceEndpoint) {
           alert('Endpoint not ready yet. Accept the cert / set up ngrok, then retry.');
@@ -369,19 +442,13 @@ function renderStep() {
         const developerName = document.getElementById('cc-dev-name').value.trim();
         const masterLabel = document.getElementById('cc-label').value.trim();
 
-        const check = await fetch(`/api/setup/cc/check?name=${encodeURIComponent(developerName)}`).then((x) => x.json());
-        if (check.exists) {
-          if (!confirm(`Contact Center "${developerName}" already exists (Id=${check.id}). Overwrite?`)) return;
-        }
-
         const logPanel = createLogPanel('deploy-log');
         await streamSse('/api/setup/cc/deploy', { serviceEndpoint, developerName, masterLabel }, (event, data) => {
           if (event === 'log') logPanel.append(data.line || data.message, data.level);
           else if (event === 'done') {
             logPanel.attachFile(data.runId);
             if (data.success) {
-              state.callCenterApiName = data.callCenterApiName;
-              document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
+              renderManualCreatePanel(data.callCenterApiName, data.masterLabel || masterLabel);
             }
           }
         });

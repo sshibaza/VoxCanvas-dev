@@ -460,22 +460,29 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
 
     let rendered = null;
     try {
-      const pem = fs.readFileSync(jwtPem, 'utf-8');
       logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Rendering metadata (endpoint=${serviceEndpoint}, vendor=VoxCanvas)` });
       rendered = renderMetadata({
         templatesDir: path.resolve('metadata/voxcanvas-contact-center'),
         values: { SERVICE_ENDPOINT: serviceEndpoint },
       });
 
-      // --- Phase 1: Deploy ConversationVendorInfo via sf source deploy ---
-      // Source deploy uses sf CLI's source-deploy-retrieve registry,
-      // which knows the canonical folder/file convention for
-      // ConversationVendorInformation (source name) and translates it
-      // to MDAPI type `ConversationVendorInfo` on the wire. No
-      // hand-authored package.xml means no risk of getting the folder
-      // name wrong and receiving a "not found in zipped directory"
-      // error from the org. ContactCenter is NOT in the registry, so
-      // it is created via REST in Phase 2 (not Metadata API).
+      // Deploy the ConversationVendorInfo vendor metadata + empty Apex stub
+      // via `sf project deploy start`. sf CLI's source-deploy-retrieve
+      // registry handles the folder/file convention for
+      // ConversationVendorInformation (source name) and translates it to
+      // MDAPI type `ConversationVendorInfo` on the wire.
+      //
+      // Note: ContactCenter itself is NOT created by this endpoint.
+      // ContactCenter is neither a REST-accessible sObject
+      // (/sobjects/ContactCenter returns 404 — confirmed against the
+      // Partner Telephony dev guide) nor a Metadata API type in the
+      // sf CLI source-deploy-retrieve registry. Salesforce's own
+      // scv-partner-telephony-quickstart sample has the admin create
+      // the Contact Center record manually via Setup UI. So this
+      // endpoint only deploys the vendor (and the Apex stub it
+      // references), and the wizard UI then guides the admin through
+      // Setup → Contact Centers → New, polling /setup/cc/check until
+      // the record appears.
       logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `(cwd=${rendered.tmpDir}) sf project deploy start --source-dir ${rendered.sourceDir} --target-org ${routerState.selectedOrgAlias}` });
       const { exitCode } = await runCommand({
         command: 'sf',
@@ -491,84 +498,20 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         send('done', { success: false, runId, exitCode, message: 'ConversationVendorInfo deploy failed' });
         return;
       }
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: 'Phase 1: ConversationVendorInfo deployed successfully' });
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: 'ConversationVendorInfo deployed. Next: create the ContactCenter record via Setup UI.' });
 
-      // --- Phase 2: Create ContactCenter sObject record via REST ---
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: 'Phase 2: Creating ContactCenter record via REST API' });
-      const display = runSfJson(['org', 'display', '--target-org', routerState.selectedOrgAlias, '--verbose', '--json']);
-      const { accessToken, instanceUrl } = display?.result || {};
-      if (!accessToken || !instanceUrl) {
-        throw new Error('sf org display did not return accessToken or instanceUrl');
-      }
-
-      const axios = (await import('axios')).default;
-      const apiVersion = 'v63.0';
-      const auth = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
-
-      // 2a: describe ContactCenter so we can (i) assert it exists in this
-      // org and (ii) confirm the exact field names the REST body must use.
-      // Field names we previously guessed (ConversationVendorInfoId etc.)
-      // may have drifted as the object evolves across releases; fail fast
-      // with a usable error instead of a generic 400 from create.
-      const expectedFields = ['DeveloperName', 'MasterLabel', 'PublicKey'];
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `GET /sobjects/ContactCenter/describe (validate field names)` });
-      const describeResp = await axios.get(
-        `${instanceUrl}/services/data/${apiVersion}/sobjects/ContactCenter/describe`,
-        { headers: auth, validateStatus: () => true },
-      );
-      if (describeResp.status !== 200) {
-        throw new Error(`ContactCenter describe failed (${describeResp.status}): ${JSON.stringify(describeResp.data)}. ` +
-          `The org likely does not have Service Cloud Voice for Partner Telephony enabled, or the user lacks access to ContactCenter.`);
-      }
-      const fieldNames = (describeResp.data?.fields || []).map((f) => f.name);
-      const missingExpected = expectedFields.filter((n) => !fieldNames.includes(n));
-      if (missingExpected.length) {
-        logger.log(runId, { level: 'warn', step: 'deploy', action: 'rest', message: `ContactCenter is missing expected fields: ${missingExpected.join(', ')}. Available: ${fieldNames.join(', ')}` });
-      }
-      // Detect the vendor-reference field dynamically. It may be named
-      // ConversationVendorInfoId or ConversationVendorInformationId, or
-      // something else on newer releases.
-      const vendorLookupField = fieldNames.find((n) => /^ConversationVendor(Info|Information)Id$/i.test(n));
-      if (!vendorLookupField) {
-        throw new Error(`ContactCenter has no vendor-reference field (looked for ConversationVendorInfoId / ConversationVendorInformationId). Available fields: ${fieldNames.join(', ')}`);
-      }
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `Vendor lookup field: ${vendorLookupField}` });
-
-      // 2b: look up the vendor we just deployed
-      const vendorQuery = `SELECT Id FROM ConversationVendorInfo WHERE DeveloperName = 'VoxCanvas'`;
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `GET query ${vendorQuery}` });
-      const vendorResp = await axios.get(
-        `${instanceUrl}/services/data/${apiVersion}/query/?q=${encodeURIComponent(vendorQuery)}`,
-        { headers: auth, validateStatus: () => true },
-      );
-      if (vendorResp.status !== 200 || !vendorResp.data?.records?.length) {
-        throw new Error(`ConversationVendorInfo 'VoxCanvas' not found after deploy: ${JSON.stringify(vendorResp.data)}`);
-      }
-      const vendorId = vendorResp.data.records[0].Id;
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `Vendor Id: ${vendorId}` });
-
-      // 2c: create the ContactCenter sObject record
-      const ccBody = {
-        DeveloperName: developerName,
-        MasterLabel: masterLabel,
-        [vendorLookupField]: vendorId,
-        PublicKey: pem,
-      };
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `POST /sobjects/ContactCenter ${JSON.stringify({ ...ccBody, PublicKey: '<pem hidden>' })}` });
-      const ccResp = await axios.post(
-        `${instanceUrl}/services/data/${apiVersion}/sobjects/ContactCenter/`,
-        ccBody,
-        { headers: auth, validateStatus: () => true },
-      );
-      if (ccResp.status < 200 || ccResp.status >= 300 || !ccResp.data?.success) {
-        const errDetail = JSON.stringify(ccResp.data);
-        logger.log(runId, { level: 'error', step: 'deploy', action: 'rest', message: `ContactCenter create failed (${ccResp.status}): ${errDetail}` });
-        throw new Error(`ContactCenter create failed: ${errDetail}`);
-      }
-      const contactCenterId = ccResp.data.id;
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: `ContactCenter created: ${contactCenterId}` });
-
-      send('done', { success: true, runId, exitCode: 0, callCenterApiName: developerName, contactCenterId });
+      send('done', {
+        success: true,
+        runId,
+        exitCode: 0,
+        vendorDeveloperName: 'VoxCanvas',
+        // Echo the admin-supplied values back so the UI can display them
+        // as guidance while the admin creates the ContactCenter in
+        // Setup → Contact Centers → New. The UI then polls
+        // /setup/cc/check?name=<developerName> to detect creation.
+        callCenterApiName: developerName,
+        masterLabel,
+      });
     } catch (err) {
       logger.log(runId, { level: 'error', step: 'deploy', action: 'sf-exec', message: err.message });
       const hint = matchHint(err.message);
