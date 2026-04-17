@@ -53,6 +53,20 @@ describe('renderMetadata', () => {
     assert.ok(!vendor.includes('conversationVendorType'), 'conversationVendorType is not a real field; use vendorType');
     assert.match(vendor, /<connectorUrl>/);
     assert.match(vendor, /<vendorType>ServiceCloudVoicePartner<\/vendorType>/);
+    // Regression guard: these *Supported flags require an <integrationClass>
+    // (an Apex implementation). VoxCanvas ships no Apex, so enabling any
+    // of them triggers a deploy error. Keep the template minimal.
+    const apexRequiringFlags = [
+      'einsteinConversationInsightsSupported',
+      'userSyncingSupported',
+      'partnerTransferDestinationsSupported',
+      'partnerContactCenterListSupported',
+      'agentSSOSupported',
+    ];
+    for (const flag of apexRequiringFlags) {
+      assert.ok(!new RegExp(`<${flag}>true</${flag}>`).test(vendor),
+        `${flag} requires <integrationClass> and must stay false or absent`);
+    }
 
     result.cleanup();
     assert.ok(!fs.existsSync(result.tmpDir));

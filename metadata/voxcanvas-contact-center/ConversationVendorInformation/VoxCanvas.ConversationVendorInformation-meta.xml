@@ -6,5 +6,4 @@
     <connectorUrl>{{SERVICE_ENDPOINT}}</connectorUrl>
     <keyProvisioningSupported>true</keyProvisioningSupported>
     <partnerPhoneNumbersSupported>true</partnerPhoneNumbersSupported>
-    <partnerContactCenterListSupported>true</partnerContactCenterListSupported>
 </ConversationVendorInfo>
