@@ -27,25 +27,28 @@ function substitute(text, values) {
   });
 }
 
-// Walk the template dir and copy XML files into the SFDX source layout at
-// dstRoot/force-app/main/default/<type>/<file>. package.xml (MDAPI) is
-// skipped — source format does not use it. Non-XML entries are ignored.
+// Copy every XML file from templatesDir into dstRoot preserving the
+// MDAPI layout expected by `sf project deploy start --metadata-dir`:
+//
+//   dstRoot/
+//     package.xml
+//     <metadataType>/<rendered-filename>.xml
+//
+// ContactCenter is not in the sf CLI source-deploy-retrieve registry
+// yet (sf 2.124+), so SFDX source deploy (--source-dir) fails with
+// TypeInferenceError. MDAPI deploy keys off package.xml and bypasses
+// filename-based type inference entirely.
 function copyAndRender(srcDir, dstRoot, values) {
-  const sourceRoot = path.join(dstRoot, 'force-app', 'main', 'default');
-  fs.mkdirSync(sourceRoot, { recursive: true });
+  fs.mkdirSync(dstRoot, { recursive: true });
   for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    const renderedName = entry.name.replace(/TEMPLATE/g, values.CC_DEVELOPER_NAME);
+    const srcPath = path.join(srcDir, entry.name);
+    const dstPath = path.join(dstRoot, renderedName);
     if (entry.isDirectory()) {
-      const typeDir = path.join(sourceRoot, entry.name);
-      fs.mkdirSync(typeDir, { recursive: true });
-      for (const file of fs.readdirSync(path.join(srcDir, entry.name), { withFileTypes: true })) {
-        if (!file.isFile() || !file.name.endsWith('.xml')) continue;
-        const renderedName = file.name.replace(/TEMPLATE/g, values.CC_DEVELOPER_NAME);
-        const src = path.join(srcDir, entry.name, file.name);
-        const dst = path.join(typeDir, renderedName);
-        fs.writeFileSync(dst, substitute(fs.readFileSync(src, 'utf-8'), values));
-      }
+      copyAndRender(srcPath, dstPath, values);
+    } else if (entry.name.endsWith('.xml')) {
+      fs.writeFileSync(dstPath, substitute(fs.readFileSync(srcPath, 'utf-8'), values));
     }
-    // Top-level files (e.g. package.xml) are intentionally skipped.
   }
 }
 
@@ -65,11 +68,15 @@ export function renderMetadata({ templatesDir, values }) {
   }
   const tmpDir = path.join(os.tmpdir(), `voxcanvas-meta-${randomUUID()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
+  // sfdx-project.json exists only to satisfy sf's workspace check. The
+  // actual deploy targets `metadata/` as an MDAPI dir — force-app never
+  // gets populated, but referencing it keeps the project JSON valid.
   fs.writeFileSync(path.join(tmpDir, 'sfdx-project.json'), SFDX_PROJECT_JSON);
-  copyAndRender(templatesDir, tmpDir, encodedValues);
+  const metadataDir = path.join(tmpDir, 'metadata');
+  copyAndRender(templatesDir, metadataDir, encodedValues);
   return {
     tmpDir,
-    sourceDir: 'force-app',
+    metadataDir: 'metadata',
     cleanup() {
       if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
     },
