@@ -123,6 +123,27 @@ export function createSetupRouter(scrt2Client) {
     res.download(path.resolve(jwtPem), 'jwt.pem');
   });
 
+  router.get('/setup/public-key', (req, res) => {
+    const jwtPem = 'certs/jwt.pem';
+    if (!fs.existsSync(jwtPem)) {
+      return res.status(404).json({
+        error: true,
+        code: 'CERT_NOT_FOUND',
+        message: 'JWT certificate not generated yet. Run certificate generation first.',
+      });
+    }
+    try {
+      const pem = fs.readFileSync(jwtPem, 'utf-8');
+      res.type('text/plain').send(pem);
+    } catch (err) {
+      res.status(500).json({
+        error: true,
+        code: 'READ_FAILED',
+        message: err.message,
+      });
+    }
+  });
+
   router.post('/setup/complete', (req, res) => {
     try {
       const { scrtBaseUrl, orgId, callCenterApiName, callCenterPhone } = req.body;
