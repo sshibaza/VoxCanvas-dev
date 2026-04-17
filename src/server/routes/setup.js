@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Logger } from '../setup/logger.js';
+import { ProcessRegistry } from '../setup/processRegistry.js';
 
 // Restrict destructive setup endpoints to local calls only. The wizard
 // generates certs, runs openssl, and writes .env — not something we want
@@ -41,6 +43,14 @@ export function createSetupRouter(scrt2Client) {
   const router = Router();
   router.use('/setup', localhostOnly);
 
+  const logger = new Logger();
+  const registry = new ProcessRegistry();
+  const routerState = {
+    selectedOrgAlias: null,
+    selectedOrgUsername: null,
+    lastRunIds: {},
+  };
+
   router.get('/setup/status', (req, res) => {
     const hasEnv = fs.existsSync('.env');
     const hasCerts = fs.existsSync('certs/jwt.key') && fs.existsSync('certs/server.pem');
@@ -48,6 +58,11 @@ export function createSetupRouter(scrt2Client) {
     let sfCliVersion = null;
     try {
       sfCliVersion = execSync('sf version', { encoding: 'utf-8' }).trim();
+    } catch { /* not installed */ }
+
+    let ngrokVersion = null;
+    try {
+      ngrokVersion = execSync('ngrok version', { encoding: 'utf-8' }).trim();
     } catch { /* not installed */ }
 
     let nodeVersion = null;
@@ -66,6 +81,7 @@ export function createSetupRouter(scrt2Client) {
       hasEnv,
       hasCerts,
       sfCliVersion,
+      ngrokVersion,
       nodeVersion,
       opensslAvailable,
     });
