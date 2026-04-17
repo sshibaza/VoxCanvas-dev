@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Logger } from '../setup/logger.js';
@@ -249,7 +249,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       if (!alias) {
         return res.json({ hasDefault: false });
       }
-      const display = JSON.parse(execSync(`sf org display --target-org ${alias} --json`, { encoding: 'utf-8' }));
+      const display = JSON.parse(execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], { encoding: 'utf-8' }));
       const r = display?.result || {};
       const myDomainUrl = r.instanceUrl || '';
       const scrtBaseUrl = myDomainUrl.replace('.my.salesforce.com', '.my.salesforce-scrt.com');
@@ -289,7 +289,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias required (alnum/._-)' });
     }
     try {
-      const display = JSON.parse(execSync(`sf org display --target-org ${alias} --json`, { encoding: 'utf-8' }));
+      const display = JSON.parse(execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], { encoding: 'utf-8' }));
       const r = display?.result || {};
       routerState.selectedOrgAlias = alias;
       routerState.selectedOrgUsername = r.username;
@@ -339,8 +339,12 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
     }
     try {
-      const out = JSON.parse(execSync(
-        `sf data query -q "SELECT Id, DeveloperName FROM ContactCenter WHERE DeveloperName = '${name}'" --target-org ${routerState.selectedOrgAlias} --json`,
+      // name and selectedOrgAlias are regex-validated elsewhere, but we still
+      // avoid shell interpolation and build SOQL via argv-only args.
+      const soql = `SELECT Id, DeveloperName FROM ContactCenter WHERE DeveloperName = '${name}'`;
+      const out = JSON.parse(execFileSync(
+        'sf',
+        ['data', 'query', '-q', soql, '--target-org', routerState.selectedOrgAlias, '--json'],
         { encoding: 'utf-8' },
       ));
       const records = out?.result?.records || [];
@@ -480,20 +484,27 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     const { randomUUID } = await import('node:crypto');
     const { startNgrok } = await import('../setup/ngrokRunner.js');
     const runId = randomUUID();
+    // Logger stays open for ngrok's lifetime (child keeps writing to stdout).
+    // It is closed by /setup/ngrok/stop or /setup/complete cleanup.
     logger.open(runId);
+    routerState.lastRunIds.ngrok = runId;
     try {
       const { url, pid } = await startNgrok({ port, registry, logger, runId });
       res.json({ url, pid, runId });
     } catch (err) {
-      res.status(500).json({ error: true, code: 'NGROK_FAILED', message: err.message, runId });
-    } finally {
       await logger.close(runId);
+      res.status(500).json({ error: true, code: 'NGROK_FAILED', message: err.message, runId });
     }
   });
 
   router.post('/setup/ngrok/stop', async (req, res) => {
-    await registry.stop('ngrok');
-    res.json({ stopped: true });
+    const stopped = await registry.stop('ngrok');
+    const runId = routerState.lastRunIds.ngrok;
+    if (runId) {
+      await logger.close(runId);
+      routerState.lastRunIds.ngrok = null;
+    }
+    res.json({ stopped });
   });
 
   router.get('/setup/processes', (req, res) => {

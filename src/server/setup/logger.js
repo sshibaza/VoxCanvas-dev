@@ -30,7 +30,7 @@ export class Logger {
   log(runId, event) {
     const line = this.format(event);
     const stream = this.streams.get(runId);
-    if (stream) stream.write(line + '\n');
+    if (stream && stream.writable) stream.write(line + '\n');
     const subs = this.subscribers.get(runId);
     if (subs) for (const fn of subs) fn({ ...event, line });
   }

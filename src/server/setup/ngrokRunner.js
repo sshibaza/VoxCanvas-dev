@@ -44,7 +44,11 @@ export async function startNgrok({ port = 3030, registry, logger, runId } = {}) 
     await new Promise((r) => setTimeout(r, 300));
   }
 
-  child.kill('SIGTERM');
+  if (registry) {
+    await registry.stop('ngrok');
+  } else {
+    child.kill('SIGTERM');
+  }
   throw new Error('ngrok tunnel did not become ready within 10s');
 }
 
