@@ -82,7 +82,7 @@ npm run build && npm start  # Production
 
 ## Important Notes
 
-- Use `127.0.0.1` (not `localhost`) when adding the callback/CORS origin on the Salesforce side — the Connected App and SCRT2 CORS allowlist expect an explicit host
+- Use `127.0.0.1` (not `localhost`) when adding the callback/CORS origin on the Salesforce side — the SCRT2 CORS allowlist expects an explicit host
 - Accept the self-signed certificate warning on first visit to the Node HTTPS server
 - Permission set names use "Partner Telephony" not "BYOT"
 - VoxCanvas does not use a Connected App or External Client App. The Partner Telephony voice path signs JWTs with the private key whose matching public key is registered directly on the Contact Center record — no OAuth Consumer Key is required.
