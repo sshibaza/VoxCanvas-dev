@@ -403,5 +403,60 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
+  router.post('/setup/permset/assign', async (req, res) => {
+    const { permsetNames, targetUser } = req.body || {};
+    if (!Array.isArray(permsetNames) || permsetNames.length === 0) {
+      return res.status(400).json({ error: true, code: 'MISSING_PERMSETS', message: 'permsetNames array required' });
+    }
+    for (const n of permsetNames) {
+      if (!/^[A-Za-z0-9_]+$/.test(n)) {
+        return res.status(400).json({ error: true, code: 'INVALID_PERMSET', message: `bad permset: ${n}` });
+      }
+    }
+    if (targetUser && !/^[A-Za-z0-9._@+-]+$/.test(targetUser)) {
+      return res.status(400).json({ error: true, code: 'INVALID_USER', message: 'bad targetUser format' });
+    }
+    if (!routerState.selectedOrgAlias) {
+      return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
+    }
+
+    const { randomUUID } = await import('node:crypto');
+    const { runCommand } = await import('../setup/sfRunner.js');
+    const { matchHint } = await import('../setup/hints.js');
+
+    const runId = randomUUID();
+    logger.open(runId);
+    routerState.lastRunIds.permset = runId;
+    const send = openSse(res);
+    const unsubscribe = logger.subscribe(runId, (ev) => send('log', ev));
+
+    const results = [];
+    try {
+      for (const name of permsetNames) {
+        const args = ['org', 'assign', 'permset', '--name', name, '--target-org', routerState.selectedOrgAlias];
+        if (targetUser) args.push('--on-behalf-of', targetUser);
+        logger.log(runId, { level: 'info', step: 'permset', action: 'sf-exec', message: `sf ${args.join(' ')}` });
+        const { exitCode } = await runCommand({
+          command: 'sf',
+          args,
+          onLine: (line, stream) => {
+            logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'permset', action: 'sf-exec', message: line });
+            const hint = matchHint(line);
+            if (hint) logger.log(runId, { level: 'hint', step: 'permset', action: 'hint', message: hint });
+          },
+        });
+        results.push({ name, exitCode });
+      }
+      const allOk = results.every((r) => r.exitCode === 0);
+      send('done', { success: allOk, runId, results });
+    } catch (err) {
+      send('done', { success: false, runId, message: err.message });
+    } finally {
+      unsubscribe();
+      await logger.close(runId);
+      res.end();
+    }
+  });
+
   return router;
 }
