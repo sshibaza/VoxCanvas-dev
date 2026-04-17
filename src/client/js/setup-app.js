@@ -171,113 +171,76 @@ function renderStep() {
       container.innerHTML = `
         <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
-          In your Salesforce org (complete in order):<br>
-          1. Deploy the <code>ConversationVendorInfo</code> metadata (see README) &mdash; this registers the vendor only<br>
-          2. Setup &rarr; Quick Find &rarr; <strong>Partner Telephony Setup</strong> &rarr; step &ldquo;Create Your Contact Center&rdquo; &rarr; <strong>New</strong> &rarr; select the deployed vendor and upload your Contact Center XML<br>
-          3. Setup &rarr; Quick Find &rarr; <strong>Partner Telephony Contact Centers</strong> &rarr; open the created Contact Center &rarr; <strong>Edit</strong> &rarr; paste the public key below into the <strong>Public Key</strong> field &rarr; Save<br>
-          4. Fill the tenant fields below
+          ウィザードが <code>ConversationVendorInfo</code> と <code>ContactCenter</code> を Metadata API で deploy します。
+          Public Key(jwt.pem)は Contact Center レコードに自動登録されます。
         </div>
 
-        <div class="mb-6">
-          <div class="flex items-center justify-between mb-2">
-            <label class="text-xs opacity-50">JWT Public Key (paste into Contact Center)</label>
-            <button id="btn-copy-pubkey" class="text-xs bg-sf-blue/30 hover:bg-sf-blue/50 px-3 py-1 rounded transition-colors">Copy</button>
+        <div class="space-y-3 mb-4">
+          <div>
+            <label class="text-xs opacity-60 block mb-1">Service Endpoint URL (ngrok 等)</label>
+            <div class="flex gap-2">
+              <input id="svc-endpoint" class="flex-1 bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" placeholder="https://xxxx.ngrok.io" />
+              <button id="btn-ngrok" class="bg-sf-blue/30 hover:bg-sf-blue/50 px-3 rounded text-xs">Launch ngrok</button>
+            </div>
+            <div id="ngrok-status" class="text-xs opacity-60 mt-1"></div>
           </div>
-          <textarea id="pubkey-display" readonly rows="8"
-            class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-xs font-mono focus:outline-none resize-none"
-            placeholder="Loading..."></textarea>
-          <div id="pubkey-copy-status" class="text-xs mt-1 opacity-0 transition-opacity"></div>
+          <div>
+            <label class="text-xs opacity-60 block mb-1">CC Developer Name</label>
+            <input id="cc-dev-name" value="VoxCanvas_CC" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
+          </div>
+          <div>
+            <label class="text-xs opacity-60 block mb-1">CC Master Label</label>
+            <input id="cc-label" value="VoxCanvas Contact Center" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm" />
+          </div>
         </div>
 
-        <div class="space-y-3 mb-6">
-          <div class="text-xs font-semibold opacity-70 mb-1">Tenant / Contact Center</div>
-          <div class="text-[0.65rem] opacity-40 mb-2 leading-relaxed">
-            SCRT2 Base URL is derived from your My Domain: replace <code>.my.salesforce.com</code> with <code>.my.salesforce-scrt.com</code>
-            (e.g. <code>https://example.my.salesforce-scrt.com</code>). Check Setup &rarr; My Domain for the current My Domain URL.
-            Org ID is in Setup &rarr; Company Information.
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">SCRT2 Base URL</label>
-            <input id="setup-scrt-base-url" type="text" placeholder="https://xxx.my.salesforce-scrt.com"
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">Salesforce Org ID</label>
-            <input id="setup-org-id" type="text" placeholder="00D..."
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">Call Center API Name</label>
-            <input id="setup-call-center-api-name" type="text" placeholder="VoxCanvas_CallCenter"
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:border-sf-blue focus:outline-none" />
-          </div>
-          <div>
-            <label class="text-xs opacity-50 mb-1 block">Call Center Phone (optional)</label>
-            <input id="setup-call-center-phone" type="text" placeholder="0120-000-000"
-              class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm focus:border-sf-blue focus:outline-none" />
-          </div>
-        </div>
-        <div class="flex justify-between">
-          <button onclick="prevStep()" class="opacity-50 hover:opacity-100 text-sm transition-colors">&larr; Back</button>
-          <button onclick="nextStep()" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-6 py-2 rounded-md text-sm font-semibold transition-colors">Next &rarr;</button>
+        <button id="btn-deploy" class="w-full bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-2 rounded font-semibold text-sm">Deploy</button>
+        <div id="deploy-log"></div>
+
+        <div class="flex justify-between mt-6">
+          <button onclick="prevStep()" class="opacity-50 hover:opacity-100 text-sm">&larr; Back</button>
+          <button id="btn-cc-next" onclick="nextStep()" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-6 py-2 rounded-md text-sm font-semibold opacity-30 pointer-events-none">Next &rarr;</button>
         </div>
       `;
 
-      // Fetch and display the JWT public key.
-      (async () => {
-        const pemTextarea = document.getElementById('pubkey-display');
-        try {
-          const res = await fetch('/api/setup/public-key');
-          if (res.ok) {
-            pemTextarea.value = await res.text();
-          } else if (res.status === 404) {
-            pemTextarea.value = 'Public key not generated yet. Go back to the Certificate step and generate certificates first.';
-          } else {
-            pemTextarea.value = `Error loading public key (HTTP ${res.status}).`;
-          }
-        } catch (err) {
-          pemTextarea.value = `Error loading public key: ${err.message}`;
+      document.getElementById('btn-ngrok').addEventListener('click', async () => {
+        const status = document.getElementById('ngrok-status');
+        status.textContent = 'Starting ngrok...';
+        const r = await fetch('/api/setup/ngrok/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ port: 3030 }),
+        }).then((x) => x.json());
+        if (r.error) {
+          status.textContent = `Error: ${r.message}`;
+          return;
         }
-      })();
-
-      // Copy button: clipboard API with textarea-select fallback.
-      document.getElementById('btn-copy-pubkey').addEventListener('click', async () => {
-        const pemTextarea = document.getElementById('pubkey-display');
-        const status = document.getElementById('pubkey-copy-status');
-        const showStatus = (text, isError) => {
-          status.textContent = text;
-          status.className = `text-xs mt-1 transition-opacity ${isError ? 'text-sf-error' : 'text-sf-success'} opacity-100`;
-          setTimeout(() => { status.className = 'text-xs mt-1 opacity-0 transition-opacity'; }, 2000);
-        };
-        try {
-          await navigator.clipboard.writeText(pemTextarea.value);
-          showStatus('Copied to clipboard', false);
-        } catch {
-          pemTextarea.select();
-          showStatus('Clipboard blocked — press Cmd/Ctrl-C to copy', true);
-        }
+        document.getElementById('svc-endpoint').value = r.url;
+        state.ngrokStarted = true;
+        status.textContent = `Tunnel: ${r.url} (pid ${r.pid})`;
       });
 
-      // Restore previously-entered tenant values on Back navigation.
-      const setIfPresent = (id, value) => {
-        const el = document.getElementById(id);
-        if (el && value) el.value = value;
-      };
-      setIfPresent('setup-scrt-base-url', state.scrtBaseUrl);
-      setIfPresent('setup-org-id', state.orgId);
-      setIfPresent('setup-call-center-api-name', state.callCenterApiName);
-      setIfPresent('setup-call-center-phone', state.callCenterPhone);
+      document.getElementById('btn-deploy').addEventListener('click', async () => {
+        const serviceEndpoint = document.getElementById('svc-endpoint').value.trim();
+        const developerName = document.getElementById('cc-dev-name').value.trim();
+        const masterLabel = document.getElementById('cc-label').value.trim();
 
-      // Persist field edits into state so they survive re-renders.
-      const bind = (id, key) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('input', () => { state[key] = el.value.trim(); });
-      };
-      bind('setup-scrt-base-url', 'scrtBaseUrl');
-      bind('setup-org-id', 'orgId');
-      bind('setup-call-center-api-name', 'callCenterApiName');
-      bind('setup-call-center-phone', 'callCenterPhone');
+        const check = await fetch(`/api/setup/cc/check?name=${encodeURIComponent(developerName)}`).then((x) => x.json());
+        if (check.exists) {
+          if (!confirm(`Contact Center "${developerName}" already exists (Id=${check.id}). Overwrite?`)) return;
+        }
+
+        const logPanel = createLogPanel('deploy-log');
+        await streamSse('/api/setup/cc/deploy', { serviceEndpoint, developerName, masterLabel }, (event, data) => {
+          if (event === 'log') logPanel.append(data.line || data.message, data.level);
+          else if (event === 'done') {
+            logPanel.attachFile(data.runId);
+            if (data.success) {
+              state.callCenterApiName = data.callCenterApiName;
+              document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
+            }
+          }
+        });
+      });
       break;
 
     case 'permset':
