@@ -381,21 +381,32 @@ function renderStep() {
         deployBtn.classList.add('opacity-50', 'pointer-events-none');
 
         const logPanel = createLogPanel('deploy-log');
-        await streamSse('/api/setup/cc/deploy', { serviceEndpoint, developerName, masterLabel }, (event, data) => {
-          if (event === 'log') logPanel.append(data.line || data.message, data.level);
-          else if (event === 'done') {
-            logPanel.attachFile(data.runId);
-            if (data.success) {
-              state.callCenterApiName = data.callCenterApiName;
-              document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
-            } else {
-              // Let the user retry after fixing the underlying issue
-              // (e.g., regenerate cert, re-select org, adjust endpoint).
-              deployBtn.disabled = false;
-              deployBtn.classList.remove('opacity-50', 'pointer-events-none');
+        let succeeded = false;
+        try {
+          await streamSse('/api/setup/cc/deploy', { serviceEndpoint, developerName, masterLabel }, (event, data) => {
+            if (event === 'log') logPanel.append(data.line || data.message, data.level);
+            else if (event === 'done') {
+              logPanel.attachFile(data.runId);
+              if (data.success) {
+                succeeded = true;
+                state.callCenterApiName = data.callCenterApiName;
+                document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
+              }
             }
+          });
+        } catch (err) {
+          // streamSse itself threw (network, fetch reject, body null).
+          // Show the error in the log and let finally re-enable the button.
+          logPanel.append(`streamSse failed: ${err.message}`, 'error');
+        } finally {
+          // Unconditionally re-enable the button unless the deploy
+          // succeeded — on failure (from any path, including
+          // mid-stream errors) the user must be able to retry.
+          if (!succeeded) {
+            deployBtn.disabled = false;
+            deployBtn.classList.remove('opacity-50', 'pointer-events-none');
           }
-        });
+        }
       });
       break;
     }

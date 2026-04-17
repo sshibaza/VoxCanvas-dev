@@ -472,35 +472,62 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         },
       });
 
-      // Deploy ConversationVendorInfo + empty Apex stub + CallCenter
-      // in a single `sf project deploy start`. sf CLI's
-      // source-deploy-retrieve registry handles all three source-format
-      // folders (ConversationVendorInformation → ConversationVendorInfo,
-      // classes → ApexClass, callCenters → CallCenter) and resolves
-      // the in-payload dependency (CallCenter's reqVendorInfoApiName
-      // references VoxCanvas vendor) as part of the same transaction.
+      // Deploy in TWO phases rather than one combined deploy, because
+      // the CallCenter's reqVendorInfoApiName field resolves against
+      // the org's existing ConversationVendorInfo records at deploy
+      // validation time — NOT against other components in the same
+      // payload. Putting them in one deploy is not guaranteed to work
+      // if the validator runs per-component. Splitting makes the
+      // ordering explicit and matches how the official
+      // scv-partner-telephony-quickstart layers ConversationVendorInfo
+      // and CallCenter deploys.
       //
-      // Authoritative references for the CallCenter Metadata API
-      // approach used here:
+      // Phase 1: ConversationVendorInfo (+ the ApexClass stub it
+      // references via integrationClass). Uses --metadata filters so
+      // the callCenter folder is NOT included in this deploy.
+      //
+      // Phase 2: CallCenter alone, now that its vendor dependency is
+      // live in the org.
+      //
+      // Authoritative references:
       //   - https://help.salesforce.com/s/articleView?id=service.voice_cc_metadata.htm
       //   - https://github.com/service-cloud-voice/examples-from-doc/blob/main/callcenter/partner_telephony_cc_import.xml
       //   - https://developer.salesforce.com/docs/atlas.en-us.api_meta.meta/api_meta/meta_callcenter.htm
+      //
       // The JWT public key is injected into reqTelephonyIntegrationCertificate
-      // so the admin no longer has to paste it into the Contact Center
-      // Public Key field via Setup UI.
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `(cwd=${rendered.tmpDir}) sf project deploy start --source-dir ${rendered.sourceDir} --target-org ${routerState.selectedOrgAlias}` });
-      const { exitCode } = await runCommand({
-        command: 'sf',
-        args: ['project', 'deploy', 'start', '--source-dir', rendered.sourceDir, '--target-org', routerState.selectedOrgAlias, '--json'],
-        cwd: rendered.tmpDir,
-        onLine: (line, stream) => {
-          logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'deploy', action: 'sf-exec', message: line });
-          const hint = matchHint(line);
-          if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
-        },
-      });
-      if (exitCode !== 0) {
-        send('done', { success: false, runId, exitCode, message: 'Deploy failed (see log)' });
+      // in the CallCenter XML so the admin does not have to paste it
+      // into the Contact Center Public Key field via Setup UI.
+      async function runDeploy(label, metadataArgs) {
+        logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `(${label}) (cwd=${rendered.tmpDir}) sf project deploy start ${metadataArgs.join(' ')} --target-org ${routerState.selectedOrgAlias}` });
+        return runCommand({
+          command: 'sf',
+          args: ['project', 'deploy', 'start', ...metadataArgs, '--target-org', routerState.selectedOrgAlias, '--json'],
+          cwd: rendered.tmpDir,
+          onLine: (line, stream) => {
+            logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'deploy', action: 'sf-exec', message: `[${label}] ${line}` });
+            const hint = matchHint(line);
+            if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
+          },
+        });
+      }
+
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: 'Phase 1/2: Deploy ConversationVendorInfo + ApexClass stub' });
+      const phase1 = await runDeploy('phase1', [
+        '--metadata', 'ConversationVendorInfo:VoxCanvas',
+        '--metadata', 'ApexClass:VoxCanvasTelephonyIntegration',
+      ]);
+      if (phase1.exitCode !== 0) {
+        send('done', { success: false, runId, exitCode: phase1.exitCode, message: 'Phase 1 deploy failed (ConversationVendorInfo / ApexClass). See log.' });
+        return;
+      }
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: 'Phase 1 succeeded. Now CallCenter can reference the vendor.' });
+
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Phase 2/2: Deploy CallCenter ${developerName}` });
+      const phase2 = await runDeploy('phase2', [
+        '--metadata', `CallCenter:${developerName}`,
+      ]);
+      if (phase2.exitCode !== 0) {
+        send('done', { success: false, runId, exitCode: phase2.exitCode, message: 'Phase 2 deploy failed (CallCenter). See log.' });
         return;
       }
       logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: `Deploy succeeded: ConversationVendorInfo VoxCanvas + CallCenter ${developerName}` });
