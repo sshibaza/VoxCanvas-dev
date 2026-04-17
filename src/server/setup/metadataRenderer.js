@@ -52,12 +52,16 @@ function substitute(text, values) {
 function copyAndRender(srcDir, dstRoot, values) {
   fs.mkdirSync(dstRoot, { recursive: true });
   for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    const src = path.join(srcDir, entry.name);
+    const dst = path.join(dstRoot, entry.name);
     if (entry.isDirectory()) {
-      copyAndRender(path.join(srcDir, entry.name), path.join(dstRoot, entry.name), values);
+      copyAndRender(src, dst, values);
     } else if (entry.name.endsWith('.xml')) {
-      const src = path.join(srcDir, entry.name);
-      const dst = path.join(dstRoot, entry.name);
       fs.writeFileSync(dst, substitute(fs.readFileSync(src, 'utf-8'), values));
+    } else {
+      // Non-XML files (Apex .cls, static resources, etc.) are copied
+      // verbatim — they never contain {{PLACEHOLDER}} markers.
+      fs.copyFileSync(src, dst);
     }
   }
 }
