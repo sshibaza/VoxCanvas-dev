@@ -51,7 +51,7 @@ function generateJwtKeyPair() {
     { stdio: 'inherit' }
   );
   fs.chmodSync(keyFile, 0o600);
-  log(`Created ${keyFile} (private) and ${certFile} (upload to Salesforce Connected App)`);
+  log(`Created ${keyFile} (private) and ${certFile} (register on Salesforce Contact Center — Public Key field)`);
 }
 
 function checkSfCli() {
@@ -92,10 +92,12 @@ function main() {
   console.log('  Setup complete!');
   console.log('========================================');
   console.log('\nNext steps:');
-  console.log('  1. Upload certs/jwt.pem to your Salesforce Connected App');
-  console.log('  2. Edit .env with your Salesforce credentials');
-  console.log('  3. Run: npm run dev');
-  console.log('  4. Open: https://127.0.0.1:3030');
+  console.log('  1. Run: npm run dev');
+  console.log('  2. Open the Setup Wizard: http://127.0.0.1:5173/setup.html');
+  console.log('     (or double-click setup.html in the project root)');
+  console.log('  3. Follow the wizard to register the JWT public key on your');
+  console.log('     Contact Center and fill in the tenant values.');
+  console.log('  4. Dashboard: http://127.0.0.1:5173/ (dev) or https://127.0.0.1:3030/ (prod build)');
   console.log('');
 }
 

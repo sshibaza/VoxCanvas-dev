@@ -12,7 +12,7 @@ npm run init      # Generate certificates
 npm run dev       # Start development server
 ```
 
-Open `http://127.0.0.1:5173` for the dashboard (dev mode) or `https://127.0.0.1:3030` after `npm run build && npm start` (production).
+**First run?** Launch the Setup Wizard at `http://127.0.0.1:5173/setup.html` — or simply **double-click `setup.html` in the project root** to open a launcher page that takes you there. After the wizard finishes, the dashboard is at `http://127.0.0.1:5173/`. Production builds (`npm run build && npm start`) serve both routes over `https://127.0.0.1:3030`.
 
 ## Setup
 

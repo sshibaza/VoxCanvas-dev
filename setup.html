@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoxCanvas — Launch Setup Wizard</title>
+  <style>
+    :root {
+      --bg-main: #0d1117;
+      --bg-panel: #111827;
+      --border: rgba(255, 255, 255, 0.1);
+      --sf-blue: #0176D3;
+      --sf-navy: #014486;
+      --sf-sky: #00A1E0;
+      --sf-orange: #FE9339;
+      --sf-success: #2E844A;
+      --sf-error: #BA0517;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Manrope, sans-serif;
+      background: var(--bg-main);
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px;
+      max-width: 560px;
+      width: 100%;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(90deg, var(--sf-navy), var(--sf-blue), var(--sf-sky));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .subtitle {
+      opacity: 0.5;
+      font-size: 13px;
+      margin: 0 0 28px;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      margin-bottom: 20px;
+      font-size: 13px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #6b7280;
+      flex-shrink: 0;
+    }
+    .dot.up {
+      background: var(--sf-success);
+      box-shadow: 0 0 0 3px rgba(46, 132, 74, 0.2);
+    }
+    .dot.down { background: var(--sf-error); }
+    .btn {
+      display: inline-block;
+      padding: 14px 28px;
+      background: var(--sf-blue);
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      transition: background 0.15s, opacity 0.15s;
+      border: none;
+      cursor: pointer;
+    }
+    .btn:hover { background: var(--sf-navy); }
+    .btn.disabled {
+      opacity: 0.35;
+      pointer-events: none;
+    }
+    code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+      font-size: 12px;
+    }
+    .hint {
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: rgba(254, 147, 57, 0.1);
+      border: 1px solid rgba(254, 147, 57, 0.25);
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .hint strong { color: var(--sf-orange); }
+    .hint p { margin: 0; }
+    .hint p + p { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>VoxCanvas Setup</h1>
+    <p class="subtitle">Launch the Setup Wizard to connect your Salesforce org.</p>
+
+    <div class="status">
+      <span id="dot" class="dot"></span>
+      <span id="status-text">Checking dev server&hellip;</span>
+    </div>
+
+    <a id="open-wizard" class="btn disabled" href="http://127.0.0.1:5173/setup.html">Open Setup Wizard</a>
+
+    <div class="hint" id="hint" hidden>
+      <p><strong>Dev server not running.</strong></p>
+      <p>From the project root, run <code>npm run dev</code>, then refresh this page.</p>
+      <p>If this is your first time, run <code>npm run init</code> first to generate certificates.</p>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const WIZARD_URL = 'http://127.0.0.1:5173/setup.html';
+      const dot = document.getElementById('dot');
+      const statusText = document.getElementById('status-text');
+      const btn = document.getElementById('open-wizard');
+      const hint = document.getElementById('hint');
+
+      function setUp() {
+        dot.classList.add('up');
+        statusText.textContent = 'Dev server detected — opening wizard\u2026';
+        btn.classList.remove('disabled');
+        hint.hidden = true;
+        setTimeout(function () { window.location.href = WIZARD_URL; }, 600);
+      }
+
+      function setDown() {
+        dot.classList.add('down');
+        statusText.textContent = 'Dev server is not running';
+        btn.classList.add('disabled');
+        hint.hidden = false;
+      }
+
+      // Probe the dev server. An opaque `no-cors` response still resolves the
+      // promise when the port answered, so we only land in the `catch` branch
+      // if nothing is listening (or CORS pre-flight cannot even connect).
+      fetch(WIZARD_URL, { mode: 'no-cors', cache: 'no-store' })
+        .then(setUp)
+        .catch(setDown);
+    })();
+  </script>
+</body>
+</html>
