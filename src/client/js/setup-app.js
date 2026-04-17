@@ -183,6 +183,7 @@ function renderStep() {
         state.orgId = r.orgId;
         state.username = r.username;
         state.scrtBaseUrl = r.scrtBaseUrl;
+        state.instanceUrl = r.instanceUrl;
         const btn = document.getElementById('btn-org-next');
         btn.classList.remove('opacity-30', 'pointer-events-none');
         document.getElementById('org-current').innerHTML = `<div class="text-sf-success">Selected: <b>${alias}</b> (${r.username})</div>`;
@@ -194,8 +195,9 @@ function renderStep() {
       container.innerHTML = `
         <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
-          ウィザードが <code>ConversationVendorInfo</code> と <code>ContactCenter</code> の Metadata API deploy を自動で実行します。
-          Public Key(jwt.pem)は Contact Center レコードに自動登録されます。
+          ウィザードが <code>ConversationVendorInfo</code>(vendor)と <code>CallCenter</code> を
+          Metadata API で 1 回のデプロイで作成します。JWT 公開鍵(<code>jwt.pem</code>)も
+          CallCenter レコードに自動登録されます。
         </div>
 
         <div class="bg-white/5 border border-white/10 rounded p-3 mb-4 text-sm">
@@ -374,6 +376,10 @@ function renderStep() {
           if (!confirm(`Contact Center "${developerName}" already exists (Id=${check.id}). Overwrite?`)) return;
         }
 
+        const deployBtn = document.getElementById('btn-deploy');
+        deployBtn.disabled = true;
+        deployBtn.classList.add('opacity-50', 'pointer-events-none');
+
         const logPanel = createLogPanel('deploy-log');
         await streamSse('/api/setup/cc/deploy', { serviceEndpoint, developerName, masterLabel }, (event, data) => {
           if (event === 'log') logPanel.append(data.line || data.message, data.level);
@@ -382,6 +388,11 @@ function renderStep() {
             if (data.success) {
               state.callCenterApiName = data.callCenterApiName;
               document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
+            } else {
+              // Let the user retry after fixing the underlying issue
+              // (e.g., regenerate cert, re-select org, adjust endpoint).
+              deployBtn.disabled = false;
+              deployBtn.classList.remove('opacity-50', 'pointer-events-none');
             }
           }
         });

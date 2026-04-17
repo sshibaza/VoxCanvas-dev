@@ -275,7 +275,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-15] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-18] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -461,21 +461,33 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     let rendered = null;
     try {
       const pem = fs.readFileSync(jwtPem, 'utf-8');
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Rendering metadata (endpoint=${serviceEndpoint}, vendor=VoxCanvas)` });
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Rendering metadata (endpoint=${serviceEndpoint}, vendor=VoxCanvas, cc=${developerName})` });
       rendered = renderMetadata({
         templatesDir: path.resolve('metadata/voxcanvas-contact-center'),
-        values: { SERVICE_ENDPOINT: serviceEndpoint },
+        values: {
+          SERVICE_ENDPOINT: serviceEndpoint,
+          CC_DEVELOPER_NAME: developerName,
+          CC_MASTER_LABEL: masterLabel,
+          JWT_PEM: pem,
+        },
       });
 
-      // --- Phase 1: Deploy ConversationVendorInfo via sf source deploy ---
-      // Source deploy uses sf CLI's source-deploy-retrieve registry,
-      // which knows the canonical folder/file convention for
-      // ConversationVendorInformation (source name) and translates it
-      // to MDAPI type `ConversationVendorInfo` on the wire. No
-      // hand-authored package.xml means no risk of getting the folder
-      // name wrong and receiving a "not found in zipped directory"
-      // error from the org. ContactCenter is NOT in the registry, so
-      // it is created via REST in Phase 2 (not Metadata API).
+      // Deploy ConversationVendorInfo + empty Apex stub + CallCenter
+      // in a single `sf project deploy start`. sf CLI's
+      // source-deploy-retrieve registry handles all three source-format
+      // folders (ConversationVendorInformation → ConversationVendorInfo,
+      // classes → ApexClass, callCenters → CallCenter) and resolves
+      // the in-payload dependency (CallCenter's reqVendorInfoApiName
+      // references VoxCanvas vendor) as part of the same transaction.
+      //
+      // Authoritative references for the CallCenter Metadata API
+      // approach used here:
+      //   - https://help.salesforce.com/s/articleView?id=service.voice_cc_metadata.htm
+      //   - https://github.com/service-cloud-voice/examples-from-doc/blob/main/callcenter/partner_telephony_cc_import.xml
+      //   - https://developer.salesforce.com/docs/atlas.en-us.api_meta.meta/api_meta/meta_callcenter.htm
+      // The JWT public key is injected into reqTelephonyIntegrationCertificate
+      // so the admin no longer has to paste it into the Contact Center
+      // Public Key field via Setup UI.
       logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `(cwd=${rendered.tmpDir}) sf project deploy start --source-dir ${rendered.sourceDir} --target-org ${routerState.selectedOrgAlias}` });
       const { exitCode } = await runCommand({
         command: 'sf',
@@ -488,87 +500,19 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         },
       });
       if (exitCode !== 0) {
-        send('done', { success: false, runId, exitCode, message: 'ConversationVendorInfo deploy failed' });
+        send('done', { success: false, runId, exitCode, message: 'Deploy failed (see log)' });
         return;
       }
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: 'Phase 1: ConversationVendorInfo deployed successfully' });
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: `Deploy succeeded: ConversationVendorInfo VoxCanvas + CallCenter ${developerName}` });
 
-      // --- Phase 2: Create ContactCenter sObject record via REST ---
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: 'Phase 2: Creating ContactCenter record via REST API' });
-      const display = runSfJson(['org', 'display', '--target-org', routerState.selectedOrgAlias, '--verbose', '--json']);
-      const { accessToken, instanceUrl } = display?.result || {};
-      if (!accessToken || !instanceUrl) {
-        throw new Error('sf org display did not return accessToken or instanceUrl');
-      }
-
-      const axios = (await import('axios')).default;
-      const apiVersion = 'v63.0';
-      const auth = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
-
-      // 2a: describe ContactCenter so we can (i) assert it exists in this
-      // org and (ii) confirm the exact field names the REST body must use.
-      // Field names we previously guessed (ConversationVendorInfoId etc.)
-      // may have drifted as the object evolves across releases; fail fast
-      // with a usable error instead of a generic 400 from create.
-      const expectedFields = ['DeveloperName', 'MasterLabel', 'PublicKey'];
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `GET /sobjects/ContactCenter/describe (validate field names)` });
-      const describeResp = await axios.get(
-        `${instanceUrl}/services/data/${apiVersion}/sobjects/ContactCenter/describe`,
-        { headers: auth, validateStatus: () => true },
-      );
-      if (describeResp.status !== 200) {
-        throw new Error(`ContactCenter describe failed (${describeResp.status}): ${JSON.stringify(describeResp.data)}. ` +
-          `The org likely does not have Service Cloud Voice for Partner Telephony enabled, or the user lacks access to ContactCenter.`);
-      }
-      const fieldNames = (describeResp.data?.fields || []).map((f) => f.name);
-      const missingExpected = expectedFields.filter((n) => !fieldNames.includes(n));
-      if (missingExpected.length) {
-        logger.log(runId, { level: 'warn', step: 'deploy', action: 'rest', message: `ContactCenter is missing expected fields: ${missingExpected.join(', ')}. Available: ${fieldNames.join(', ')}` });
-      }
-      // Detect the vendor-reference field dynamically. It may be named
-      // ConversationVendorInfoId or ConversationVendorInformationId, or
-      // something else on newer releases.
-      const vendorLookupField = fieldNames.find((n) => /^ConversationVendor(Info|Information)Id$/i.test(n));
-      if (!vendorLookupField) {
-        throw new Error(`ContactCenter has no vendor-reference field (looked for ConversationVendorInfoId / ConversationVendorInformationId). Available fields: ${fieldNames.join(', ')}`);
-      }
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `Vendor lookup field: ${vendorLookupField}` });
-
-      // 2b: look up the vendor we just deployed
-      const vendorQuery = `SELECT Id FROM ConversationVendorInfo WHERE DeveloperName = 'VoxCanvas'`;
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `GET query ${vendorQuery}` });
-      const vendorResp = await axios.get(
-        `${instanceUrl}/services/data/${apiVersion}/query/?q=${encodeURIComponent(vendorQuery)}`,
-        { headers: auth, validateStatus: () => true },
-      );
-      if (vendorResp.status !== 200 || !vendorResp.data?.records?.length) {
-        throw new Error(`ConversationVendorInfo 'VoxCanvas' not found after deploy: ${JSON.stringify(vendorResp.data)}`);
-      }
-      const vendorId = vendorResp.data.records[0].Id;
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `Vendor Id: ${vendorId}` });
-
-      // 2c: create the ContactCenter sObject record
-      const ccBody = {
-        DeveloperName: developerName,
-        MasterLabel: masterLabel,
-        [vendorLookupField]: vendorId,
-        PublicKey: pem,
-      };
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `POST /sobjects/ContactCenter ${JSON.stringify({ ...ccBody, PublicKey: '<pem hidden>' })}` });
-      const ccResp = await axios.post(
-        `${instanceUrl}/services/data/${apiVersion}/sobjects/ContactCenter/`,
-        ccBody,
-        { headers: auth, validateStatus: () => true },
-      );
-      if (ccResp.status < 200 || ccResp.status >= 300 || !ccResp.data?.success) {
-        const errDetail = JSON.stringify(ccResp.data);
-        logger.log(runId, { level: 'error', step: 'deploy', action: 'rest', message: `ContactCenter create failed (${ccResp.status}): ${errDetail}` });
-        throw new Error(`ContactCenter create failed: ${errDetail}`);
-      }
-      const contactCenterId = ccResp.data.id;
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: `ContactCenter created: ${contactCenterId}` });
-
-      send('done', { success: true, runId, exitCode: 0, callCenterApiName: developerName, contactCenterId });
+      send('done', {
+        success: true,
+        runId,
+        exitCode: 0,
+        vendorDeveloperName: 'VoxCanvas',
+        callCenterApiName: developerName,
+        masterLabel,
+      });
     } catch (err) {
       logger.log(runId, { level: 'error', step: 'deploy', action: 'sf-exec', message: err.message });
       const hint = matchHint(err.message);
