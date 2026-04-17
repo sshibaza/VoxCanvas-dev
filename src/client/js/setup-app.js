@@ -244,11 +244,43 @@ function renderStep() {
       break;
 
     case 'permset':
-      container.innerHTML = `<div class="text-sm">Permset step — to be implemented</div>
-        <div class="flex justify-between mt-4">
-          <button onclick="prevStep()" class="text-sm opacity-50">&larr; Back</button>
-          <button onclick="nextStep()" class="bg-sf-blue/40 px-6 py-2 rounded-md text-sm">Next &rarr;</button>
-        </div>`;
+      container.innerHTML = `
+        <h2 class="text-lg font-bold mb-4">Assign Permission Sets</h2>
+        <div class="text-sm opacity-60 mb-4">
+          Admin と Agent の Permission Set を割り当てます。
+        </div>
+        <div class="space-y-2 mb-4 text-sm">
+          <div class="bg-white/5 px-3 py-2 rounded"><code>ContactCenterAdminExternalTelephony</code></div>
+          <div class="bg-white/5 px-3 py-2 rounded"><code>ContactCenterAgentExternalTelephony</code></div>
+        </div>
+        <div class="mb-4">
+          <label class="text-xs opacity-60 block mb-1">Target User (optional)</label>
+          <input id="permset-user" placeholder="${state.username || 'connected user'}" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
+        </div>
+        <button id="btn-assign" class="w-full bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-2 rounded font-semibold text-sm">Assign</button>
+        <div id="permset-log"></div>
+        <div class="flex justify-between mt-6">
+          <button onclick="prevStep()" class="opacity-50 hover:opacity-100 text-sm">&larr; Back</button>
+          <button id="btn-permset-next" onclick="nextStep()" class="bg-sf-blue/40 hover:bg-sf-blue/60 px-6 py-2 rounded-md text-sm font-semibold opacity-30 pointer-events-none">Next &rarr;</button>
+        </div>
+      `;
+
+      document.getElementById('btn-assign').addEventListener('click', async () => {
+        const targetUser = document.getElementById('permset-user').value.trim() || undefined;
+        const logPanel = createLogPanel('permset-log');
+        await streamSse('/api/setup/permset/assign', {
+          permsetNames: ['ContactCenterAdminExternalTelephony', 'ContactCenterAgentExternalTelephony'],
+          targetUser,
+        }, (event, data) => {
+          if (event === 'log') logPanel.append(data.line || data.message, data.level);
+          else if (event === 'done') {
+            logPanel.attachFile(data.runId);
+            if (data.success) {
+              document.getElementById('btn-permset-next').classList.remove('opacity-30', 'pointer-events-none');
+            }
+          }
+        });
+      });
       break;
 
     case 'test':
