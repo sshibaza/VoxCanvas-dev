@@ -173,7 +173,7 @@ export function createSetupRouter(scrt2Client) {
     }
   });
 
-  router.post('/setup/complete', (req, res) => {
+  router.post('/setup/complete', async (req, res) => {
     try {
       const { scrtBaseUrl, orgId, callCenterApiName, callCenterPhone } = req.body;
       if (!scrtBaseUrl || !orgId || !callCenterApiName) {
@@ -216,7 +216,21 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         callCenterApiName: safe.callCenterApiName,
       });
 
-      res.json({ success: true, message: 'Configuration saved.' });
+      const { cleanupAllTmpDirs } = await import('../setup/metadataRenderer.js');
+      const cleanup = req.body?.cleanup || {};
+      const cleanupResult = { logsDeleted: 0, tmpDirsDeleted: 0, processesStopped: [] };
+      if (cleanup.deleteLogs) {
+        cleanupResult.logsDeleted = logger.deleteAll();
+      }
+      if (cleanup.deleteTmp) {
+        cleanupResult.tmpDirsDeleted = cleanupAllTmpDirs();
+      }
+      if (Array.isArray(cleanup.stopProcesses)) {
+        for (const name of cleanup.stopProcesses) {
+          if (await registry.stop(name)) cleanupResult.processesStopped.push(name);
+        }
+      }
+      res.json({ success: true, message: 'Configuration saved.', cleanup: cleanupResult });
     } catch (err) {
       const status = err.code === 'INVALID_INPUT' ? 400 : 500;
       res.status(status).json({
