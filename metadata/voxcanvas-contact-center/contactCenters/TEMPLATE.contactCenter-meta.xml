@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<ContactCenter xmlns="http://soap.sforce.com/2006/04/metadata">
-    <developerName>{{CC_DEVELOPER_NAME}}</developerName>
-    <masterLabel>{{CC_MASTER_LABEL}}</masterLabel>
-    <conversationVendorInfo>VoxCanvas</conversationVendorInfo>
-    <publicKey>{{PUBLIC_KEY_PEM}}</publicKey>
-</ContactCenter>
