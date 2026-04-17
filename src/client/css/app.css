@@ -1,5 +1,23 @@
 @import "tailwindcss";
 
+/*
+ * Safelist dynamic color variants used by conversation.js / ui-utils.js.
+ * These strings (e.g. `bg-sf-orange/10`) are assembled at runtime via
+ * template literals, so Tailwind's static source scan can't see them —
+ * without this directive, Customer bubbles and quick-phrase pills render
+ * with no background in the production build.
+ */
+@source inline("bg-sf-orange/{10,15,20}");
+@source inline("bg-sf-blue/{10,15,20}");
+@source inline("border-sf-orange/{15,20}");
+@source inline("border-sf-blue/{15,20}");
+@source inline("text-sf-orange");
+@source inline("text-sf-blue");
+@source inline("hover:bg-sf-orange/20");
+@source inline("hover:bg-sf-blue/20");
+@source inline("focus:border-sf-orange");
+@source inline("focus:border-sf-blue");
+
 @theme {
   --color-sf-blue: #0176D3;
   --color-sf-navy: #014486;
