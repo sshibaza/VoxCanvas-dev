@@ -170,6 +170,19 @@ function renderStep() {
       setIfPresent('setup-call-center-api-name', state.callCenterApiName);
       setIfPresent('setup-call-center-phone', state.callCenterPhone);
 
+      // Re-sync the login URL button highlight + hidden input so the UI
+      // reflects state.loginUrl (otherwise Back navigation resets the
+      // visible selection to login.salesforce.com while state still holds
+      // test.salesforce.com, and the POST uses state).
+      if (state.loginUrl) {
+        document.querySelectorAll('.login-url-btn').forEach((b) => {
+          b.className = b.dataset.url === state.loginUrl
+            ? 'login-url-btn bg-sf-blue/30 px-3 py-1.5 rounded text-xs font-medium'
+            : 'login-url-btn bg-white/10 px-3 py-1.5 rounded text-xs font-medium';
+        });
+        document.getElementById('setup-login-url').value = state.loginUrl;
+      }
+
       // Capture each field into `state` so it survives re-renders.
       const bind = (id, key) => {
         const el = document.getElementById(id);

@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { getToken } from '../auth/jwt.js';
+import { getToken, clearTokenCache } from '../auth/jwt.js';
 
 const TELEPHONY_API_PATH = '/telephony/v1';
 const PROVIDER_NAME = 'voxcanvas';
@@ -18,6 +18,9 @@ export class Scrt2Client {
     this.scrtBaseUrl = scrtBaseUrl;
     this.orgId = orgId;
     this.callCenterApiName = callCenterApiName;
+    // JWT cache is keyed only on time, so any tenant switch must drop the
+    // prior token — its `iss`/`sub` were signed with the old values.
+    clearTokenCache();
   }
 
   isConfigured() {
