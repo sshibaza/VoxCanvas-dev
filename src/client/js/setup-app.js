@@ -299,3 +299,72 @@ window.nextStep = nextStep;
 window.prevStep = prevStep;
 
 init();
+
+function createLogPanel(containerId) {
+  const panel = document.getElementById(containerId);
+  panel.innerHTML = `
+    <div class="bg-black/40 border border-white/10 rounded-md mt-3">
+      <div class="flex items-center justify-between px-3 py-1.5 border-b border-white/10">
+        <span class="text-xs opacity-60">Log</span>
+        <div class="flex gap-2">
+          <button class="text-xs opacity-60 hover:opacity-100" data-act="copy">Copy</button>
+          <a class="text-xs opacity-60 hover:opacity-100 hidden" data-act="open">File</a>
+        </div>
+      </div>
+      <pre class="text-[0.7rem] font-mono px-3 py-2 max-h-60 overflow-auto" data-log></pre>
+    </div>`;
+  const pre = panel.querySelector('[data-log]');
+  const copy = panel.querySelector('[data-act="copy"]');
+  const openLink = panel.querySelector('[data-act="open"]');
+  const append = (line, level) => {
+    const div = document.createElement('div');
+    const colors = { error: 'text-sf-error', warn: 'text-yellow-400', hint: 'text-sf-blue font-semibold', info: 'opacity-80' };
+    div.className = colors[level] || 'opacity-70';
+    div.textContent = line;
+    pre.appendChild(div);
+    pre.scrollTop = pre.scrollHeight;
+  };
+  copy.addEventListener('click', () => {
+    navigator.clipboard.writeText(pre.innerText);
+  });
+  const attachFile = (runId) => {
+    openLink.href = `/api/setup/logs/${runId}`;
+    openLink.classList.remove('hidden');
+    openLink.target = '_blank';
+  };
+  return { append, attachFile };
+}
+
+async function streamSse(url, body, onEvent) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.body) throw new Error('no body');
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split('\n\n');
+    buf = parts.pop();
+    for (const part of parts) {
+      const lines = part.split('\n');
+      let event = 'message';
+      let data = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) event = line.slice(7);
+        else if (line.startsWith('data: ')) data += line.slice(6);
+      }
+      try {
+        onEvent(event, JSON.parse(data));
+      } catch { /* partial */ }
+    }
+  }
+}
+
+window.createLogPanel = createLogPanel;
+window.streamSse = streamSse;
