@@ -241,15 +241,32 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
+  function runSfJson(args) {
+    // Capture stderr in the thrown error so the client sees real failures
+    // (e.g. sf not on PATH, auth expired) instead of an opaque 500.
+    try {
+      const stdout = execFileSync('sf', args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+      return JSON.parse(stdout);
+    } catch (err) {
+      const stderr = err.stderr ? err.stderr.toString().trim() : '';
+      const msg = stderr || err.message;
+      const e = new Error(msg);
+      e.code = err.code || 'SF_EXEC_FAILED';
+      throw e;
+    }
+  }
+
   router.get('/setup/org', (req, res) => {
     try {
-      const defaultOrg = execSync('sf config get target-org --json', { encoding: 'utf-8' });
-      const parsed = JSON.parse(defaultOrg);
-      const alias = parsed?.result?.[0]?.value || null;
+      const parsed = runSfJson(['config', 'get', 'target-org', '--json']);
+      // sf config get returns an array where each entry may or may not have `value`.
+      // Newer CLI versions also use `success: false` on entries without a value.
+      const entry = parsed?.result?.find?.((x) => x?.name === 'target-org' && x?.value) || parsed?.result?.[0];
+      const alias = entry?.value || null;
       if (!alias) {
         return res.json({ hasDefault: false });
       }
-      const display = JSON.parse(execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], { encoding: 'utf-8' }));
+      const display = runSfJson(['org', 'display', '--target-org', alias, '--json']);
       const r = display?.result || {};
       const myDomainUrl = r.instanceUrl || '';
       const scrtBaseUrl = myDomainUrl.replace('.my.salesforce.com', '.my.salesforce-scrt.com');
@@ -269,14 +286,27 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
 
   router.get('/setup/org/list', (req, res) => {
     try {
-      const out = JSON.parse(execSync('sf org list --json', { encoding: 'utf-8' }));
-      const all = [...(out?.result?.nonScratchOrgs || []), ...(out?.result?.scratchOrgs || [])];
-      const orgs = all.map((o) => ({
-        alias: o.alias,
-        username: o.username,
-        instanceUrl: o.instanceUrl,
-        isDefault: !!o.isDefaultUsername || !!o.isDefaultDevHubUsername,
-      }));
+      const out = runSfJson(['org', 'list', '--json']);
+      // sf CLI v2+ splits orgs across multiple buckets. Union them all so
+      // dev hubs / sandboxes / "other" orgs are not silently dropped.
+      const buckets = ['nonScratchOrgs', 'scratchOrgs', 'devHubs', 'sandboxes', 'other'];
+      const seen = new Set();
+      const orgs = [];
+      for (const key of buckets) {
+        for (const o of out?.result?.[key] || []) {
+          const id = o.username || o.alias || o.orgId;
+          if (id && !seen.has(id)) {
+            seen.add(id);
+            orgs.push({
+              alias: o.alias || null,
+              username: o.username,
+              instanceUrl: o.instanceUrl,
+              isDefault: !!o.isDefaultUsername || !!o.isDefaultDevHubUsername,
+              bucket: key,
+            });
+          }
+        }
+      }
       res.json({ orgs });
     } catch (err) {
       res.status(500).json({ error: true, code: 'SF_LIST_FAILED', message: err.message });
@@ -285,8 +315,8 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
 
   router.post('/setup/org/select', async (req, res) => {
     const { alias } = req.body || {};
-    if (!alias || !/^[A-Za-z0-9._-]+$/.test(alias)) {
-      return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias required (alnum/._-)' });
+    if (!alias || !/^[A-Za-z0-9._@+-]+$/.test(alias)) {
+      return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias or username required (alnum/._@+-)' });
     }
     try {
       const display = JSON.parse(execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], { encoding: 'utf-8' }));
@@ -303,8 +333,8 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
 
   router.post('/setup/org/login', async (req, res) => {
     const { alias } = req.body || {};
-    if (!alias || !/^[A-Za-z0-9._-]+$/.test(alias)) {
-      return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias required (alnum/._-)' });
+    if (!alias || !/^[A-Za-z0-9._@+-]+$/.test(alias)) {
+      return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias or username required (alnum/._@+-)' });
     }
     const { randomUUID } = await import('node:crypto');
     const runId = randomUUID();

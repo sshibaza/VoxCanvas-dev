@@ -118,25 +118,37 @@ function renderStep() {
         const info = document.getElementById('org-current');
         const useBtn = document.getElementById('btn-use-default');
         const r = await fetch('/api/setup/org').then((x) => x.json());
-        if (r.hasDefault) {
+        if (r.error) {
+          info.innerHTML = `<div class="text-sf-error">sf CLI error: ${r.message}</div>
+            <div class="opacity-60 text-xs mt-1">Verify <code>sf --version</code> is on PATH and at least one org is logged in (<code>sf org login web</code>).</div>`;
+        } else if (r.hasDefault) {
           info.innerHTML = `<div>Default alias: <b>${r.alias}</b></div><div class="opacity-60 text-xs">${r.username} — ${r.orgId}</div><div class="opacity-60 text-xs mt-1">SCRT: ${r.scrtBaseUrl}</div>`;
           useBtn.classList.remove('hidden');
           useBtn.addEventListener('click', async () => {
             await selectOrg(r.alias);
           });
         } else {
-          info.textContent = 'No default org. Pick or log in below.';
+          info.textContent = 'No default org set. Pick one below or log in.';
         }
+
         const list = await fetch('/api/setup/org/list').then((x) => x.json());
         const listEl = document.getElementById('org-list');
-        listEl.innerHTML = (list.orgs || []).map((o) => `
-          <button data-alias="${o.alias || o.username}" class="block w-full text-left hover:bg-white/10 px-2 py-1 rounded">
-            ${o.alias || '(no alias)'} — <span class="opacity-60">${o.username}</span>
-          </button>
-        `).join('');
-        listEl.querySelectorAll('button[data-alias]').forEach((b) => {
-          b.addEventListener('click', () => selectOrg(b.dataset.alias));
-        });
+        if (list.error) {
+          listEl.innerHTML = `<div class="text-sf-error text-xs p-2">Failed to list orgs: ${list.message}</div>`;
+        } else if (!list.orgs || list.orgs.length === 0) {
+          listEl.innerHTML = '<div class="opacity-60 text-xs p-2">No authenticated orgs found. Use "Login a new org" below.</div>';
+        } else {
+          listEl.innerHTML = list.orgs.map((o) => {
+            const aliasAttr = o.alias || o.username;
+            const label = o.alias ? `<b>${o.alias}</b> <span class="opacity-60">${o.username}</span>` : `<span>${o.username}</span>`;
+            const badge = o.bucket && o.bucket !== 'nonScratchOrgs' ? `<span class="opacity-40 text-[0.65rem] ml-1">[${o.bucket}]</span>` : '';
+            return `<button data-alias="${aliasAttr}" class="block w-full text-left hover:bg-white/10 px-2 py-1 rounded">${label}${badge}</button>`;
+          }).join('');
+          listEl.querySelectorAll('button[data-alias]').forEach((b) => {
+            b.addEventListener('click', () => selectOrg(b.dataset.alias));
+          });
+        }
+
         document.getElementById('btn-login').addEventListener('click', async () => {
           const alias = document.getElementById('new-alias').value.trim();
           if (!alias) return;
