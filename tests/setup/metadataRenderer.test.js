@@ -27,7 +27,7 @@ describe('encodePem', () => {
 describe('renderMetadata', () => {
   const templatesDir = path.resolve('metadata/voxcanvas-contact-center');
 
-  test('renders all files into a new tmp directory', () => {
+  test('renders all files into an SFDX source-format tmp project', () => {
     const result = renderMetadata({
       templatesDir,
       values: {
@@ -38,13 +38,19 @@ describe('renderMetadata', () => {
       },
     });
 
-    const vendorFile = path.join(result.tmpDir, 'conversationVendorInfos', 'VoxCanvas.conversationVendorInfo-meta.xml');
-    const ccFile = path.join(result.tmpDir, 'contactCenters', 'VoxCanvas_CC.contactCenter-meta.xml');
-    const pkgFile = path.join(result.tmpDir, 'package.xml');
+    const projectFile = path.join(result.tmpDir, 'sfdx-project.json');
+    const srcRoot = path.join(result.tmpDir, 'force-app', 'main', 'default');
+    const vendorFile = path.join(srcRoot, 'conversationVendorInfos', 'VoxCanvas.conversationVendorInfo-meta.xml');
+    const ccFile = path.join(srcRoot, 'contactCenters', 'VoxCanvas_CC.contactCenter-meta.xml');
 
+    assert.ok(fs.existsSync(projectFile), 'sfdx-project.json must exist so sf CLI recognises the workspace');
     assert.ok(fs.existsSync(vendorFile));
     assert.ok(fs.existsSync(ccFile));
-    assert.ok(fs.existsSync(pkgFile));
+    assert.equal(result.sourceDir, 'force-app');
+
+    // sfdx-project.json should declare force-app as a packageDirectory.
+    const project = JSON.parse(fs.readFileSync(projectFile, 'utf-8'));
+    assert.equal(project.packageDirectories?.[0]?.path, 'force-app');
 
     const vendor = fs.readFileSync(vendorFile, 'utf-8');
     assert.match(vendor, /https:\/\/abc\.ngrok\.io/);
@@ -53,9 +59,6 @@ describe('renderMetadata', () => {
     const cc = fs.readFileSync(ccFile, 'utf-8');
     assert.match(cc, /<developerName>VoxCanvas_CC<\/developerName>/);
     assert.match(cc, /&#10;/);
-
-    const pkg = fs.readFileSync(pkgFile, 'utf-8');
-    assert.match(pkg, /<members>VoxCanvas_CC<\/members>/);
 
     result.cleanup();
     assert.ok(!fs.existsSync(result.tmpDir));
@@ -80,8 +83,9 @@ describe('renderMetadata', () => {
         PUBLIC_KEY_PEM: 'KEY',
       },
     });
-    const vendor = fs.readFileSync(path.join(result.tmpDir, 'conversationVendorInfos', 'VoxCanvas.conversationVendorInfo-meta.xml'), 'utf-8');
-    const cc = fs.readFileSync(path.join(result.tmpDir, 'contactCenters', 'Safe_Name.contactCenter-meta.xml'), 'utf-8');
+    const srcRoot = path.join(result.tmpDir, 'force-app', 'main', 'default');
+    const vendor = fs.readFileSync(path.join(srcRoot, 'conversationVendorInfos', 'VoxCanvas.conversationVendorInfo-meta.xml'), 'utf-8');
+    const cc = fs.readFileSync(path.join(srcRoot, 'contactCenters', 'Safe_Name.contactCenter-meta.xml'), 'utf-8');
     assert.match(vendor, /https:\/\/a&amp;b\.com/);
     assert.match(cc, /&lt;not-a-tag&gt;/);
     result.cleanup();
