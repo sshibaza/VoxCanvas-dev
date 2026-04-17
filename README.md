@@ -24,13 +24,14 @@ npm run init
 
 This creates HTTPS and JWT certificates in `certs/`.
 
-### 2. Deploy Contact Center
+### 2. Create Partner Telephony Contact Center
 
-```bash
-sf project deploy start \
-  --source-dir force-app/main/default/callCenters/ \
-  --target-org YOUR_ORG
-```
+VoxCanvas does not ship Contact Center metadata — the SCRT endpoint and Contact Center API name are tenant-specific. Bring your own via either path:
+
+- **Sample repo (recommended):** clone [salesforce-misc/byo-demo-connector](https://github.com/salesforce-misc/byo-demo-connector), edit the `ConversationVendorInfo` XML so `serviceEndpoint` points to your VoxCanvas URL (e.g. an ngrok tunnel to `https://127.0.0.1:3030`), then run `sf project deploy start --source-dir force-app/main/default --target-org YOUR_ORG`.
+- **Setup UI:** `ConversationVendorInfo` has no Setup UI and must be deployed via Metadata API. Once deployed, create the Contact Center at Setup → Service Cloud Voice → Contact Centers → New, selecting your deployed vendor.
+
+Note the Contact Center's API name — it becomes `CALL_CENTER_API_NAME` in `.env` (step 6).
 
 ### 3. Register JWT Public Key on Contact Center
 
@@ -86,7 +87,7 @@ npm run build && npm start  # Production
 - Accept the self-signed certificate warning on first visit to the Node HTTPS server
 - Permission set names use "Partner Telephony" not "BYOT"
 - VoxCanvas does not use a Connected App or External Client App. The Partner Telephony voice path signs JWTs with the private key whose matching public key is registered directly on the Contact Center record — no OAuth Consumer Key is required.
-- Contact Center XML must be deployed via Metadata API, not UI wizard
+- `ConversationVendorInfo` metadata has no Setup UI; it must be deployed via Metadata API (`sf project deploy start`)
 - Metadata type is `ConversationVendorInfo` (not `ConversationVendorInformation`)
 - The Setup Wizard endpoints (`/api/setup/*`) only respond to loopback (127.0.0.1) by design
 
