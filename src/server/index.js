@@ -16,7 +16,7 @@ import { createSetupRouter } from './routes/setup.js';
 // via /api/setup/status so the UI can confirm it is talking to the
 // version of the server it expects (avoids stale-nodemon / wrong-branch
 // confusion during wizard debugging).
-const SETUP_SERVER_VERSION = 'wizard-cc-5';
+const SETUP_SERVER_VERSION = 'wizard-cc-6';
 
 dotenv.config();
 
