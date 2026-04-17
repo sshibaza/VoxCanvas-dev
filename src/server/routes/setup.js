@@ -275,7 +275,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-9] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-10] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -497,10 +497,39 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       }
 
       const axios = (await import('axios')).default;
-      const apiVersion = 'v60.0';
+      const apiVersion = 'v63.0';
       const auth = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
 
-      // 2a: look up the vendor we just deployed
+      // 2a: describe ContactCenter so we can (i) assert it exists in this
+      // org and (ii) confirm the exact field names the REST body must use.
+      // Field names we previously guessed (ConversationVendorInfoId etc.)
+      // may have drifted as the object evolves across releases; fail fast
+      // with a usable error instead of a generic 400 from create.
+      const expectedFields = ['DeveloperName', 'MasterLabel', 'PublicKey'];
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `GET /sobjects/ContactCenter/describe (validate field names)` });
+      const describeResp = await axios.get(
+        `${instanceUrl}/services/data/${apiVersion}/sobjects/ContactCenter/describe`,
+        { headers: auth, validateStatus: () => true },
+      );
+      if (describeResp.status !== 200) {
+        throw new Error(`ContactCenter describe failed (${describeResp.status}): ${JSON.stringify(describeResp.data)}. ` +
+          `The org likely does not have Service Cloud Voice for Partner Telephony enabled, or the user lacks access to ContactCenter.`);
+      }
+      const fieldNames = (describeResp.data?.fields || []).map((f) => f.name);
+      const missingExpected = expectedFields.filter((n) => !fieldNames.includes(n));
+      if (missingExpected.length) {
+        logger.log(runId, { level: 'warn', step: 'deploy', action: 'rest', message: `ContactCenter is missing expected fields: ${missingExpected.join(', ')}. Available: ${fieldNames.join(', ')}` });
+      }
+      // Detect the vendor-reference field dynamically. It may be named
+      // ConversationVendorInfoId or ConversationVendorInformationId, or
+      // something else on newer releases.
+      const vendorLookupField = fieldNames.find((n) => /^ConversationVendor(Info|Information)Id$/i.test(n));
+      if (!vendorLookupField) {
+        throw new Error(`ContactCenter has no vendor-reference field (looked for ConversationVendorInfoId / ConversationVendorInformationId). Available fields: ${fieldNames.join(', ')}`);
+      }
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `Vendor lookup field: ${vendorLookupField}` });
+
+      // 2b: look up the vendor we just deployed
       const vendorQuery = `SELECT Id FROM ConversationVendorInfo WHERE DeveloperName = 'VoxCanvas'`;
       logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `GET query ${vendorQuery}` });
       const vendorResp = await axios.get(
@@ -513,11 +542,11 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       const vendorId = vendorResp.data.records[0].Id;
       logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `Vendor Id: ${vendorId}` });
 
-      // 2b: create the ContactCenter sObject record
+      // 2c: create the ContactCenter sObject record
       const ccBody = {
         DeveloperName: developerName,
         MasterLabel: masterLabel,
-        ConversationVendorInfoId: vendorId,
+        [vendorLookupField]: vendorId,
         PublicKey: pem,
       };
       logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `POST /sobjects/ContactCenter ${JSON.stringify({ ...ccBody, PublicKey: '<pem hidden>' })}` });
@@ -577,6 +606,25 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
 
     const results = [];
     try {
+      // Verify each permset exists in the target org before we try to
+      // assign it — otherwise `sf org assign permset` fails with a
+      // generic error per name. Fail-fast with a clear list of missing
+      // names so the user can spot a typo or an unlicensed feature.
+      logger.log(runId, { level: 'info', step: 'permset', action: 'sf-exec', message: `Verifying permsets exist: ${permsetNames.join(', ')}` });
+      const names = permsetNames.map((n) => `'${n}'`).join(', ');
+      const lookupQuery = `SELECT Name FROM PermissionSet WHERE Name IN (${names})`;
+      const lookup = runSfJson(['data', 'query', '-q', lookupQuery, '--target-org', routerState.selectedOrgAlias, '--json']);
+      const found = new Set((lookup?.result?.records || []).map((r) => r.Name));
+      const missing = permsetNames.filter((n) => !found.has(n));
+      if (missing.length) {
+        const hintMsg = `Permission sets not found in org: ${missing.join(', ')}. ` +
+          `This usually means Service Cloud Voice for Partner Telephony is not fully enabled on this org ` +
+          `(Setup → Feature Settings → Service → Partner Telephony), or a license is missing.`;
+        logger.log(runId, { level: 'error', step: 'permset', action: 'hint', message: hintMsg });
+        send('done', { success: false, runId, message: hintMsg, missing });
+        return;
+      }
+
       for (const name of permsetNames) {
         const args = ['org', 'assign', 'permset', '--name', name, '--target-org', routerState.selectedOrgAlias];
         if (targetUser) args.push('--on-behalf-of', targetUser);

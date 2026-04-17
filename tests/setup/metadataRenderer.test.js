@@ -36,21 +36,26 @@ describe('renderMetadata', () => {
     const projectFile = path.join(result.tmpDir, 'sfdx-project.json');
     const mdRoot = path.join(result.tmpDir, 'metadata');
     const pkgFile = path.join(mdRoot, 'package.xml');
-    const vendorFile = path.join(mdRoot, 'conversationVendorInfos', 'VoxCanvas.conversationVendorInfo-meta.xml');
+    const vendorFile = path.join(mdRoot, 'ConversationVendorInformation', 'VoxCanvas.ConversationVendorInformation-meta.xml');
     const ccDir = path.join(mdRoot, 'contactCenters');
 
     assert.ok(fs.existsSync(projectFile), 'sfdx-project.json must exist so sf CLI recognises the workspace');
     assert.ok(fs.existsSync(pkgFile), 'MDAPI package.xml must exist so --metadata-dir can resolve types');
-    assert.ok(fs.existsSync(vendorFile));
+    assert.ok(fs.existsSync(vendorFile), 'ConversationVendorInformation vendor XML must exist under the canonical folder');
     assert.ok(!fs.existsSync(ccDir), 'contactCenters/ must NOT exist — CC is not a Metadata API type');
     assert.equal(result.metadataDir, 'metadata');
 
     const vendor = fs.readFileSync(vendorFile, 'utf-8');
     assert.match(vendor, /https:\/\/abc\.ngrok\.io/);
     assert.ok(!vendor.includes('{{SERVICE_ENDPOINT}}'));
+    // Regression guards: the old (wrong) field names must not reappear.
+    assert.ok(!vendor.includes('serviceEndpoint'), 'serviceEndpoint is not a real field; use connectorUrl');
+    assert.ok(!vendor.includes('conversationVendorType'), 'conversationVendorType is not a real field; use vendorType');
+    assert.match(vendor, /<connectorUrl>/);
+    assert.match(vendor, /<vendorType>ServiceCloudVoicePartner<\/vendorType>/);
 
     const pkg = fs.readFileSync(pkgFile, 'utf-8');
-    assert.match(pkg, /<name>ConversationVendorInfo<\/name>/);
+    assert.match(pkg, /<name>ConversationVendorInformation<\/name>/);
     assert.ok(!pkg.includes('ContactCenter'), 'package.xml must not reference ContactCenter');
 
     result.cleanup();
@@ -69,7 +74,7 @@ describe('renderMetadata', () => {
       values: { SERVICE_ENDPOINT: 'https://a&b.com' },
     });
     const vendor = fs.readFileSync(
-      path.join(result.tmpDir, 'metadata', 'conversationVendorInfos', 'VoxCanvas.conversationVendorInfo-meta.xml'),
+      path.join(result.tmpDir, 'metadata', 'ConversationVendorInformation', 'VoxCanvas.ConversationVendorInformation-meta.xml'),
       'utf-8',
     );
     assert.match(vendor, /https:\/\/a&amp;b\.com/);

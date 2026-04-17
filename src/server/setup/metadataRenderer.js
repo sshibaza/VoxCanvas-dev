@@ -58,7 +58,7 @@ function copyAndRender(srcDir, dstRoot, values) {
 // itself is not an SFDX project.
 const SFDX_PROJECT_JSON = JSON.stringify({
   packageDirectories: [{ path: 'force-app', default: true }],
-  sourceApiVersion: '61.0',
+  sourceApiVersion: '63.0',
 }, null, 2) + '\n';
 
 export function renderMetadata({ templatesDir, values }) {
