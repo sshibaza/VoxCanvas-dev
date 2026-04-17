@@ -214,5 +214,65 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
+  router.get('/setup/org', (req, res) => {
+    try {
+      const defaultOrg = execSync('sf config get target-org --json', { encoding: 'utf-8' });
+      const parsed = JSON.parse(defaultOrg);
+      const alias = parsed?.result?.[0]?.value || null;
+      if (!alias) {
+        return res.json({ hasDefault: false });
+      }
+      const display = JSON.parse(execSync(`sf org display --target-org ${alias} --json`, { encoding: 'utf-8' }));
+      const r = display?.result || {};
+      const myDomainUrl = r.instanceUrl || '';
+      const scrtBaseUrl = myDomainUrl.replace('.my.salesforce.com', '.my.salesforce-scrt.com');
+      res.json({
+        hasDefault: true,
+        alias,
+        username: r.username,
+        orgId: r.id,
+        instanceUrl: r.instanceUrl,
+        myDomainUrl,
+        scrtBaseUrl,
+      });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_ORG_FAILED', message: err.message });
+    }
+  });
+
+  router.get('/setup/org/list', (req, res) => {
+    try {
+      const out = JSON.parse(execSync('sf org list --json', { encoding: 'utf-8' }));
+      const all = [...(out?.result?.nonScratchOrgs || []), ...(out?.result?.scratchOrgs || [])];
+      const orgs = all.map((o) => ({
+        alias: o.alias,
+        username: o.username,
+        instanceUrl: o.instanceUrl,
+        isDefault: !!o.isDefaultUsername || !!o.isDefaultDevHubUsername,
+      }));
+      res.json({ orgs });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_LIST_FAILED', message: err.message });
+    }
+  });
+
+  router.post('/setup/org/select', async (req, res) => {
+    const { alias } = req.body || {};
+    if (!alias || !/^[A-Za-z0-9._-]+$/.test(alias)) {
+      return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias required (alnum/._-)' });
+    }
+    try {
+      const display = JSON.parse(execSync(`sf org display --target-org ${alias} --json`, { encoding: 'utf-8' }));
+      const r = display?.result || {};
+      routerState.selectedOrgAlias = alias;
+      routerState.selectedOrgUsername = r.username;
+      const myDomainUrl = r.instanceUrl || '';
+      const scrtBaseUrl = myDomainUrl.replace('.my.salesforce.com', '.my.salesforce-scrt.com');
+      res.json({ alias, username: r.username, orgId: r.id, instanceUrl: r.instanceUrl, myDomainUrl, scrtBaseUrl });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_DISPLAY_FAILED', message: err.message });
+    }
+  });
+
   return router;
 }

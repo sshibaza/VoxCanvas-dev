@@ -34,3 +34,13 @@ describe('localhostOnly', () => {
     assert.equal(res.status, 403);
   });
 });
+
+describe('POST /api/setup/org/select', () => {
+  test('rejects invalid alias', async () => {
+    const res = await request(makeApp())
+      .post('/api/setup/org/select')
+      .send({ alias: 'bad; rm -rf /' });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'INVALID_ALIAS');
+  });
+});
