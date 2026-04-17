@@ -27,23 +27,23 @@ describe('encodePem', () => {
 describe('renderMetadata', () => {
   const templatesDir = path.resolve('metadata/voxcanvas-contact-center');
 
-  test('renders ConversationVendorInfo-only MDAPI layout (ContactCenter is REST-created separately)', () => {
+  test('renders SFDX source-format layout (sfdx-project.json + force-app/main/default/<type>/<file>)', () => {
     const result = renderMetadata({
       templatesDir,
       values: { SERVICE_ENDPOINT: 'https://abc.ngrok.io' },
     });
 
     const projectFile = path.join(result.tmpDir, 'sfdx-project.json');
-    const mdRoot = path.join(result.tmpDir, 'metadata');
-    const pkgFile = path.join(mdRoot, 'package.xml');
-    const vendorFile = path.join(mdRoot, 'ConversationVendorInformation', 'VoxCanvas.ConversationVendorInformation-meta.xml');
-    const ccDir = path.join(mdRoot, 'contactCenters');
+    const srcRoot = path.join(result.tmpDir, 'force-app', 'main', 'default');
+    const vendorFile = path.join(srcRoot, 'ConversationVendorInformation', 'VoxCanvas.ConversationVendorInformation-meta.xml');
+    const ccDir = path.join(srcRoot, 'contactCenters');
+    const strayPkg = path.join(result.tmpDir, 'package.xml');
 
     assert.ok(fs.existsSync(projectFile), 'sfdx-project.json must exist so sf CLI recognises the workspace');
-    assert.ok(fs.existsSync(pkgFile), 'MDAPI package.xml must exist so --metadata-dir can resolve types');
-    assert.ok(fs.existsSync(vendorFile), 'ConversationVendorInformation vendor XML must exist under the canonical folder');
+    assert.ok(fs.existsSync(vendorFile), 'vendor XML must be under force-app/main/default/ConversationVendorInformation');
     assert.ok(!fs.existsSync(ccDir), 'contactCenters/ must NOT exist — CC is not a Metadata API type');
-    assert.equal(result.metadataDir, 'metadata');
+    assert.ok(!fs.existsSync(strayPkg), 'No hand-authored package.xml — sf CLI generates it from the source tree');
+    assert.equal(result.sourceDir, 'force-app');
 
     const vendor = fs.readFileSync(vendorFile, 'utf-8');
     assert.match(vendor, /https:\/\/abc\.ngrok\.io/);
@@ -53,10 +53,6 @@ describe('renderMetadata', () => {
     assert.ok(!vendor.includes('conversationVendorType'), 'conversationVendorType is not a real field; use vendorType');
     assert.match(vendor, /<connectorUrl>/);
     assert.match(vendor, /<vendorType>ServiceCloudVoicePartner<\/vendorType>/);
-
-    const pkg = fs.readFileSync(pkgFile, 'utf-8');
-    assert.match(pkg, /<name>ConversationVendorInformation<\/name>/);
-    assert.ok(!pkg.includes('ContactCenter'), 'package.xml must not reference ContactCenter');
 
     result.cleanup();
     assert.ok(!fs.existsSync(result.tmpDir));
@@ -74,7 +70,7 @@ describe('renderMetadata', () => {
       values: { SERVICE_ENDPOINT: 'https://a&b.com' },
     });
     const vendor = fs.readFileSync(
-      path.join(result.tmpDir, 'metadata', 'ConversationVendorInformation', 'VoxCanvas.ConversationVendorInformation-meta.xml'),
+      path.join(result.tmpDir, 'force-app', 'main', 'default', 'ConversationVendorInformation', 'VoxCanvas.ConversationVendorInformation-meta.xml'),
       'utf-8',
     );
     assert.match(vendor, /https:\/\/a&amp;b\.com/);

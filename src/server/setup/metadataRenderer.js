@@ -27,35 +27,41 @@ function substitute(text, values) {
   });
 }
 
-// Copy every XML file from templatesDir into dstRoot preserving the
-// MDAPI layout expected by `sf project deploy start --metadata-dir`:
+// Copy every .xml under templatesDir to a self-contained SFDX SOURCE
+// project layout rooted at dstRoot:
 //
 //   dstRoot/
-//     package.xml
-//     <metadataType>/<rendered-filename>.xml
+//     sfdx-project.json
+//     force-app/main/default/<templateTypeDir>/<file>.xml
 //
-// ContactCenter is not in the sf CLI source-deploy-retrieve registry
-// yet (sf 2.124+), so SFDX source deploy (--source-dir) fails with
-// TypeInferenceError. MDAPI deploy keys off package.xml and bypasses
-// filename-based type inference entirely.
+// We intentionally use SFDX source format (NOT MDAPI) because:
+//   1. sf CLI's source-deploy-retrieve registry knows the canonical
+//      source-format directory/file convention for
+//      ConversationVendorInformation and correctly translates it to
+//      the MDAPI type name `ConversationVendorInfo` on the wire.
+//   2. If we hand-author MDAPI, we have to guess the lower-case plural
+//      folder ("conversationVendorInfos"? "conversationVendorInfo"?)
+//      and the org rejects mismatches with opaque errors. The registry
+//      already has the right answer — let sf CLI apply it.
+//   3. No package.xml is needed — sf CLI generates it on the fly.
+//
+// ConversationVendorInformation (source-format folder name) IS in the
+// registry. ContactCenter is NOT, which is why the CC record is
+// created separately via the ContactCenter sObject REST API instead of
+// through Metadata API.
 function copyAndRender(srcDir, dstRoot, values) {
   fs.mkdirSync(dstRoot, { recursive: true });
   for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
-    const renderedName = entry.name.replace(/TEMPLATE/g, values.CC_DEVELOPER_NAME);
-    const srcPath = path.join(srcDir, entry.name);
-    const dstPath = path.join(dstRoot, renderedName);
     if (entry.isDirectory()) {
-      copyAndRender(srcPath, dstPath, values);
+      copyAndRender(path.join(srcDir, entry.name), path.join(dstRoot, entry.name), values);
     } else if (entry.name.endsWith('.xml')) {
-      fs.writeFileSync(dstPath, substitute(fs.readFileSync(srcPath, 'utf-8'), values));
+      const src = path.join(srcDir, entry.name);
+      const dst = path.join(dstRoot, entry.name);
+      fs.writeFileSync(dst, substitute(fs.readFileSync(src, 'utf-8'), values));
     }
   }
 }
 
-// Minimal sfdx-project.json so `sf project deploy start` treats the tmp
-// directory as a valid workspace. Without this the CLI walks up to the
-// user's cwd and fails with InvalidProjectWorkspaceError when VoxCanvas
-// itself is not an SFDX project.
 const SFDX_PROJECT_JSON = JSON.stringify({
   packageDirectories: [{ path: 'force-app', default: true }],
   sourceApiVersion: '63.0',
@@ -68,20 +74,13 @@ export function renderMetadata({ templatesDir, values }) {
   }
   const tmpDir = path.join(os.tmpdir(), `voxcanvas-meta-${randomUUID()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
-  // sfdx-project.json exists only to satisfy sf's workspace check. The
-  // actual deploy targets `metadata/` as an MDAPI dir — force-app never
-  // gets populated, but referencing it keeps the project JSON valid.
   fs.writeFileSync(path.join(tmpDir, 'sfdx-project.json'), SFDX_PROJECT_JSON);
-  const metadataDir = path.join(tmpDir, 'metadata');
-  copyAndRender(templatesDir, metadataDir, encodedValues);
-  // ContactCenter is NOT a Metadata API type — it is created via the
-  // Setup UI's import flow OR via direct REST sObject insert. Only the
-  // ConversationVendorInfo vendor is deployed here; the Contact Center
-  // record is created separately by the /setup/cc/deploy endpoint using
-  // the ContactCenter sObject REST API.
+  const sourceRoot = path.join(tmpDir, 'force-app', 'main', 'default');
+  fs.mkdirSync(sourceRoot, { recursive: true });
+  copyAndRender(templatesDir, sourceRoot, encodedValues);
   return {
     tmpDir,
-    metadataDir: 'metadata',
+    sourceDir: 'force-app',
     cleanup() {
       if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
     },
