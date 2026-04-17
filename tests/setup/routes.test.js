@@ -44,3 +44,21 @@ describe('POST /api/setup/org/select', () => {
     assert.equal(res.body.code, 'INVALID_ALIAS');
   });
 });
+
+describe('POST /api/setup/cc/deploy validation', () => {
+  test('rejects non-https endpoint', async () => {
+    const res = await request(makeApp())
+      .post('/api/setup/cc/deploy')
+      .send({ serviceEndpoint: 'http://insecure.example', developerName: 'Good', masterLabel: 'Good' });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'INVALID_ENDPOINT');
+  });
+
+  test('rejects bad developerName', async () => {
+    const res = await request(makeApp())
+      .post('/api/setup/cc/deploy')
+      .send({ serviceEndpoint: 'https://a.b', developerName: 'bad name', masterLabel: 'L' });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'INVALID_NAME');
+  });
+});

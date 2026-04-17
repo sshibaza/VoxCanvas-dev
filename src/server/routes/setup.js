@@ -316,5 +316,92 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
+  router.get('/setup/cc/check', (req, res) => {
+    const name = String(req.query.name || '');
+    if (!/^[A-Za-z0-9_]+$/.test(name)) {
+      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'name must be alphanumeric + _' });
+    }
+    if (!routerState.selectedOrgAlias) {
+      return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
+    }
+    try {
+      const out = JSON.parse(execSync(
+        `sf data query -q "SELECT Id, DeveloperName FROM ContactCenter WHERE DeveloperName = '${name}'" --target-org ${routerState.selectedOrgAlias} --json`,
+        { encoding: 'utf-8' },
+      ));
+      const records = out?.result?.records || [];
+      res.json({ exists: records.length > 0, id: records[0]?.Id || null });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_QUERY_FAILED', message: err.message });
+    }
+  });
+
+  router.post('/setup/cc/deploy', async (req, res) => {
+    const { serviceEndpoint, developerName, masterLabel } = req.body || {};
+    if (!serviceEndpoint || !developerName || !masterLabel) {
+      return res.status(400).json({ error: true, code: 'MISSING_FIELDS', message: 'serviceEndpoint, developerName, masterLabel required' });
+    }
+    if (!/^https:\/\/[A-Za-z0-9.\-/_:]+$/.test(serviceEndpoint)) {
+      return res.status(400).json({ error: true, code: 'INVALID_ENDPOINT', message: 'serviceEndpoint must be https URL' });
+    }
+    if (!/^[A-Za-z0-9_]+$/.test(developerName)) {
+      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must be alphanumeric + _' });
+    }
+    if (!routerState.selectedOrgAlias) {
+      return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
+    }
+    const jwtPem = 'certs/jwt.pem';
+    if (!fs.existsSync(jwtPem)) {
+      return res.status(400).json({ error: true, code: 'NO_CERT', message: 'run certificate step first' });
+    }
+
+    const { randomUUID } = await import('node:crypto');
+    const { renderMetadata } = await import('../setup/metadataRenderer.js');
+    const { runCommand } = await import('../setup/sfRunner.js');
+    const { matchHint } = await import('../setup/hints.js');
+
+    const runId = randomUUID();
+    logger.open(runId);
+    routerState.lastRunIds.ccDeploy = runId;
+    const send = openSse(res);
+    const unsubscribe = logger.subscribe(runId, (ev) => send('log', ev));
+
+    let rendered = null;
+    try {
+      const pem = fs.readFileSync(jwtPem, 'utf-8');
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Rendering metadata (endpoint=${serviceEndpoint}, cc=${developerName})` });
+      rendered = renderMetadata({
+        templatesDir: path.resolve('metadata/voxcanvas-contact-center'),
+        values: {
+          SERVICE_ENDPOINT: serviceEndpoint,
+          CC_DEVELOPER_NAME: developerName,
+          CC_MASTER_LABEL: masterLabel,
+          PUBLIC_KEY_PEM: pem,
+        },
+      });
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `sf project deploy start --source-dir ${rendered.tmpDir} --target-org ${routerState.selectedOrgAlias}` });
+      const { exitCode } = await runCommand({
+        command: 'sf',
+        args: ['project', 'deploy', 'start', '--source-dir', rendered.tmpDir, '--target-org', routerState.selectedOrgAlias, '--json'],
+        onLine: (line, stream) => {
+          logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'deploy', action: 'sf-exec', message: line });
+          const hint = matchHint(line);
+          if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
+        },
+      });
+      send('done', { success: exitCode === 0, runId, exitCode, callCenterApiName: developerName });
+    } catch (err) {
+      logger.log(runId, { level: 'error', step: 'deploy', action: 'sf-exec', message: err.message });
+      const hint = matchHint(err.message);
+      if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
+      send('done', { success: false, runId, message: err.message });
+    } finally {
+      rendered?.cleanup();
+      unsubscribe();
+      await logger.close(runId);
+      res.end();
+    }
+  });
+
   return router;
 }
