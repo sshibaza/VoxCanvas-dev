@@ -235,11 +235,52 @@ function renderStep() {
           deployBtn.disabled = false;
         }
 
+        function copyCmd(cmd) {
+          return `<div class="flex items-center gap-2 bg-black/40 border border-white/10 rounded px-2 py-1 font-mono text-[0.7rem]">
+            <span class="flex-1 break-all">${cmd}</span>
+            <button data-copy="${cmd.replace(/"/g, '&quot;')}" class="opacity-60 hover:opacity-100 text-xs">copy</button>
+          </div>`;
+        }
+
         function setTunnelError(message) {
           display.innerHTML = `<span class="text-sf-error">&#10007; Tunnel unavailable</span>`;
-          statusEl.innerHTML = `<span class="text-sf-error">${message}</span><br>
-            <span class="opacity-70">Install: <code>brew install ngrok</code> &mdash; then <code>ngrok config add-authtoken &lt;your token&gt;</code>. Free token: <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" class="underline">ngrok dashboard</a>.</span>
-            <button id="btn-tunnel-retry" class="mt-2 bg-sf-blue/40 hover:bg-sf-blue/60 px-3 py-1 rounded text-xs">Retry</button>`;
+          statusEl.innerHTML = `
+            <div class="text-sf-error mb-2">${message}</div>
+            <div class="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
+              <div class="font-semibold opacity-80">ngrok セットアップ(初回のみ、約 2 分)</div>
+              <div>
+                <div class="opacity-80 mb-1"><b>1.</b> アカウント作成(無料):
+                  <a href="https://dashboard.ngrok.com/signup" target="_blank" class="underline text-sf-blue">dashboard.ngrok.com/signup</a>
+                </div>
+              </div>
+              <div>
+                <div class="opacity-80 mb-1"><b>2.</b> インストール(macOS):</div>
+                ${copyCmd('brew install ngrok')}
+                <div class="opacity-50 text-[0.65rem] mt-1">Windows / Linux: <a href="https://ngrok.com/download" target="_blank" class="underline">ngrok.com/download</a></div>
+              </div>
+              <div>
+                <div class="opacity-80 mb-1"><b>3.</b> authtoken を取得:
+                  <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" class="underline text-sf-blue">Your Authtoken ページ</a>
+                  を開いてトークン文字列をコピー
+                </div>
+              </div>
+              <div>
+                <div class="opacity-80 mb-1"><b>4.</b> authtoken を登録(トークンを実際の値に置換):</div>
+                ${copyCmd('ngrok config add-authtoken YOUR_TOKEN_HERE')}
+              </div>
+              <div>
+                <div class="opacity-80"><b>5.</b> 下の Retry ボタンを押す(ウィザードを閉じる必要はありません)</div>
+              </div>
+            </div>
+            <button id="btn-tunnel-retry" class="mt-3 bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-1.5 rounded text-sm font-semibold">Retry</button>`;
+          statusEl.querySelectorAll('button[data-copy]').forEach((b) => {
+            b.addEventListener('click', () => {
+              navigator.clipboard.writeText(b.dataset.copy);
+              const orig = b.textContent;
+              b.textContent = 'copied';
+              setTimeout(() => { b.textContent = orig; }, 1000);
+            });
+          });
           const retry = document.getElementById('btn-tunnel-retry');
           if (retry) retry.addEventListener('click', provisionTunnel);
         }
