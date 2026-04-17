@@ -91,7 +91,7 @@ function renderStep() {
 
     case 'org-auth':
       container.innerHTML = `
-        <h2 class="text-lg font-bold mb-4">Select Salesforce Org</h2>
+        <h2 class="text-lg font-bold mb-4">Select Salesforce Org <span id="srv-ver" class="text-[0.65rem] opacity-30 font-mono ml-2"></span></h2>
         <div id="org-current" class="text-sm opacity-70 mb-4">Loading...</div>
         <div class="space-y-3">
           <button id="btn-use-default" class="w-full bg-sf-blue/40 hover:bg-sf-blue/60 px-4 py-2 rounded-md text-sm font-semibold hidden">Use default org</button>
@@ -117,6 +117,13 @@ function renderStep() {
       (async () => {
         const info = document.getElementById('org-current');
         const useBtn = document.getElementById('btn-use-default');
+        // Probe server version — if this 404s the server is pre-fix.
+        try {
+          const ver = await fetch('/api/setup/version').then((x) => x.ok ? x.json() : null);
+          const el = document.getElementById('srv-ver');
+          if (ver?.version) el.textContent = `server: ${ver.version}`;
+          else el.innerHTML = '<span class="text-sf-error">server: stale (no /api/setup/version) — git pull + restart npm run dev</span>';
+        } catch { /* ignore */ }
         const r = await fetch('/api/setup/org').then((x) => x.json());
         if (r.error) {
           info.innerHTML = `<div class="text-sf-error">sf CLI error: ${r.message}</div>

@@ -59,6 +59,15 @@ describe('stripAnsi', () => {
   test('removes foreground color codes', () => {
     assert.equal(stripAnsi('\x1b[97m{\x1b[39m}'), '{}');
   });
+  test('removes OSC sequences (ESC ] ... BEL)', () => {
+    assert.equal(stripAnsi('\x1b]8;;https://example.com\x07hi\x1b]8;;\x07'), 'hi');
+  });
+  test('removes bare ESC = / ESC > sequences', () => {
+    assert.equal(stripAnsi('\x1b=hello\x1b>'), 'hello');
+  });
+  test('removes sequences with private-mode params (e.g. ?25h)', () => {
+    assert.equal(stripAnsi('\x1b[?25hvisible\x1b[?25l'), 'visible');
+  });
   test('leaves plain text unchanged', () => {
     assert.equal(stripAnsi('plain'), 'plain');
   });

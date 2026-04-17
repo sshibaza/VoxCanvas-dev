@@ -12,6 +12,12 @@ import { createTranscriptionRouter } from './routes/transcription.js';
 import { createVoicemailRouter } from './routes/voicemail.js';
 import { createSetupRouter } from './routes/setup.js';
 
+// Bumped whenever the setup router / sf parse pipeline changes. Surfaced
+// via /api/setup/status so the UI can confirm it is talking to the
+// version of the server it expects (avoids stale-nodemon / wrong-branch
+// confusion during wizard debugging).
+const SETUP_SERVER_VERSION = 'wizard-cc-2';
+
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +43,11 @@ app.use('/api', createTranscriptionRouter(scrt2Client));
 app.use('/api', createVoicemailRouter(scrt2Client));
 const { router: setupRouter, registry: setupRegistry } = createSetupRouter(scrt2Client);
 app.use('/api', setupRouter);
+
+// Version probe: lets the UI confirm the server is not stale after a pull.
+app.get('/api/setup/version', (req, res) => {
+  res.json({ version: SETUP_SERVER_VERSION });
+});
 
 function shutdown() {
   console.log('Shutting down, stopping wizard-spawned processes...');
@@ -74,12 +85,12 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
     key: fs.readFileSync(keyPath),
   };
   https.createServer(httpsOptions, app).listen(port, host, () => {
-    console.log(`\nVoxCanvas server running at https://${host}:${port}`);
+    console.log(`\nVoxCanvas server running at https://${host}:${port}  [setup=${SETUP_SERVER_VERSION}]`);
     console.log(`Dashboard: https://${host}:${port}/`);
   });
 } else {
   app.listen(port, host, () => {
-    console.log(`\nVoxCanvas server running at http://${host}:${port} (no HTTPS certs found)`);
+    console.log(`\nVoxCanvas server running at http://${host}:${port} (no HTTPS certs found)  [setup=${SETUP_SERVER_VERSION}]`);
     console.log(`Run 'npm run init' to generate certificates.`);
   });
 }
