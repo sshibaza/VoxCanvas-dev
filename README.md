@@ -16,59 +16,46 @@ npm run dev       # Start development server
 
 ## Setup
 
-### 1. Generate Certificates
+Setup Wizard が `sf` CLI を呼び出して Contact Center 作成・Permission Set 割り当て・.env 書き出しまで完結させます。
+
+### 前提
+
+- `sf` CLI v2.x 以降(`sf --version` で確認)
+- `ngrok` v3.x(optional、Salesforce から VoxCanvas に到達させる tunnel 用。`ngrok config add-authtoken <token>` 済みであること)
+- 対象 Salesforce Org:
+  - Service Cloud Voice for Partner Telephony ライセンス有効
+  - ログインユーザーが System Administrator 相当
+
+### 手順
 
 ```bash
-npm run init
+npm install
+npm run dev
 ```
 
-This creates HTTPS and JWT certificates in `certs/`.
+ブラウザで `http://127.0.0.1:5173/setup.html` を開き、ウィザードに従って以下を実行:
 
-### 2. Create Partner Telephony Contact Center
+1. **Welcome** — 環境チェック(node / sf / openssl / ngrok)
+2. **Certificate** — HTTPS + JWT 証明書を生成
+3. **Org** — `sf` 既定 Org を使用 or 別の alias を選択 or 新規ログイン
+4. **Contact Center** — ngrok 起動 + Contact Center 名を入力 → Deploy
+5. **Permissions** — Admin + Agent permset を割り当て
+6. **Connect** — 設定サマリの疎通確認
+7. **Verify** — 設定サマリ確認 + cleanup 実行 + `.env` 保存
 
-VoxCanvas does not ship Contact Center metadata — the SCRT endpoint and Contact Center API name are tenant-specific. Bring your own via either path:
-
-- **Sample repo (recommended):** clone [salesforce-misc/byo-demo-connector](https://github.com/salesforce-misc/byo-demo-connector), edit the `ConversationVendorInfo` XML so `serviceEndpoint` points to your VoxCanvas URL (e.g. an ngrok tunnel to `https://127.0.0.1:3030`), then run `sf project deploy start --source-dir force-app/main/default --target-org YOUR_ORG`.
-- **Setup UI:** `ConversationVendorInfo` has no Setup UI and must be deployed via Metadata API. Once deployed, create the Contact Center at Setup → Service Cloud Voice → Contact Centers → New, selecting your deployed vendor.
-
-Note the Contact Center's API name — it becomes `CALL_CENTER_API_NAME` in `.env` (step 6).
-
-### 3. Register JWT Public Key on Contact Center
-
-1. Setup → Contact Centers → select the deployed VoxCanvas Contact Center
-2. Edit → paste the contents of `certs/jwt.pem` into the **Public Key** field
-3. Save
-
-The Setup Wizard (step 3) shows this pem content with a Copy button.
-
-### 4. Assign Permission Sets
+### 完了後
 
 ```bash
-sf org assign permset --name ContactCenterAdminExternalTelephony --target-org YOUR_ORG
-sf org assign permset --name ContactCenterAgentExternalTelephony --target-org YOUR_ORG
+npm start   # 本番モード(HTTPS、port 3030)
 ```
 
-### 5. Configure Service Console
+### 手動実行が必要な項目(自動化対象外)
 
-1. Add Omni-Channel Utility to your Service Console app
-2. Create Presence Status with Phone channel (e.g., "Available for Phone")
-3. Add Enhanced Conversation component to Voice Call record page (Lightning App Builder)
+- Service Console に Omni-Channel Utility を追加
+- Presence Status "Available for Phone" を作成
+- Voice Call レコードページに Enhanced Conversation を配置
 
-### 6. Set Tenant Values
-
-Either run the Setup Wizard (`npm run dev` → open `http://127.0.0.1:5173/setup.html`) or fill these manually in `.env`:
-
-- `SF_SCRT_BASE_URL` — Setup → Service Cloud Voice → Partner Telephony
-- `SF_ORG_ID` — Setup → Company Information
-- `CALL_CENTER_API_NAME` — developer name of the deployed Contact Center
-- `CALL_CENTER_PHONE` — the phone number used as "from"/"to" default (optional)
-
-### 7. Run
-
-```bash
-npm run dev       # Development (hot reload)
-npm run build && npm start  # Production
-```
+これらは Lightning App Builder で実施してください。
 
 ## Demo Flow
 
