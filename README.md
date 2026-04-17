@@ -6,7 +6,7 @@ Simulate voice calls, real-time transcription, and voicemail without Amazon Conn
 ## Quick Start
 
 ```bash
-git clone [<repo-url>](https://github.com/sshibaza/VoxCanvas-dev.git) && cd voxcanvas
+git clone https://github.com/sshibaza/VoxCanvas-dev.git && cd voxcanvas
 npm install
 npm run init      # Generate certificates
 npm run dev       # Start development server
