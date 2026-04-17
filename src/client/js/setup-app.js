@@ -334,13 +334,66 @@ function renderStep() {
 
     case 'complete':
       container.innerHTML = `
-        <div class="text-center py-8">
-          <div class="text-4xl mb-4">&#10003;</div>
-          <h2 class="text-xl font-bold text-sf-success mb-2">VoxCanvas is ready!</h2>
-          <p class="text-sm opacity-50 mb-6">Configuration saved. Restart the server and open the dashboard.</p>
-          <a href="/" class="inline-block bg-sf-blue/40 hover:bg-sf-blue/60 px-8 py-3 rounded-lg text-sm font-bold transition-colors">Open Dashboard &rarr;</a>
+        <h2 class="text-lg font-bold mb-4">Review & Finish</h2>
+        <div class="text-sm opacity-70 space-y-1 mb-4">
+          <div>Org Alias: <b>${state.orgAlias || '(none)'}</b></div>
+          <div>Username: ${state.username || '-'}</div>
+          <div>Org ID: ${state.orgId || '-'}</div>
+          <div>SCRT Base URL: <code>${state.scrtBaseUrl || '-'}</code></div>
+          <div>Contact Center: ${state.callCenterApiName || '-'}</div>
         </div>
+
+        <div class="mb-4">
+          <label class="text-xs opacity-60 block mb-1">Call Center Phone (optional)</label>
+          <input id="cc-phone" placeholder="0120-000-000" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
+        </div>
+
+        <div class="bg-white/5 rounded p-3 mb-4">
+          <div class="text-xs font-semibold opacity-70 mb-2">Cleanup</div>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="chk-logs" checked> Delete setup logs</label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="chk-tmp" checked> Delete tmp metadata dirs</label>
+          <div id="process-list" class="mt-2 text-sm"></div>
+        </div>
+
+        <button id="btn-finish" class="w-full bg-sf-success/50 hover:bg-sf-success/70 px-4 py-2 rounded font-semibold text-sm">Save & Finish</button>
+        <div id="finish-result" class="mt-3 text-sm"></div>
       `;
+
+      (async () => {
+        const procs = await fetch('/api/setup/processes').then((x) => x.json());
+        const procList = document.getElementById('process-list');
+        if (procs.processes?.length) {
+          procList.innerHTML = '<div class="text-xs opacity-60 mb-1">Wizard-started processes:</div>' +
+            procs.processes.map((p) => `<label class="flex items-center gap-2"><input type="checkbox" class="proc-chk" data-name="${p.name}" checked> ${p.label} (pid ${p.pid})</label>`).join('');
+        }
+      })();
+
+      document.getElementById('btn-finish').addEventListener('click', async () => {
+        const stopProcesses = [...document.querySelectorAll('.proc-chk')]
+          .filter((c) => c.checked).map((c) => c.dataset.name);
+        const body = {
+          scrtBaseUrl: state.scrtBaseUrl,
+          orgId: state.orgId,
+          callCenterApiName: state.callCenterApiName,
+          callCenterPhone: document.getElementById('cc-phone').value.trim(),
+          cleanup: {
+            deleteLogs: document.getElementById('chk-logs').checked,
+            deleteTmp: document.getElementById('chk-tmp').checked,
+            stopProcesses,
+          },
+        };
+        const r = await fetch('/api/setup/complete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).then((x) => x.json());
+        const out = document.getElementById('finish-result');
+        if (r.success) {
+          out.innerHTML = `<div class="text-sf-success">Done. ${r.cleanup.logsDeleted} logs, ${r.cleanup.tmpDirsDeleted} tmp dirs deleted, stopped: ${r.cleanup.processesStopped.join(', ') || 'none'}.</div>
+            <a href="/" class="underline text-sf-blue">Open Dashboard</a>`;
+        } else {
+          out.innerHTML = `<div class="text-sf-error">${r.message}</div>`;
+        }
+      });
       break;
   }
 }
