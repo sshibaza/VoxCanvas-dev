@@ -4,6 +4,14 @@
     <masterLabel>VoxCanvas Partner Telephony</masterLabel>
     <vendorType>ServiceCloudVoicePartner</vendorType>
     <connectorUrl>{{SERVICE_ENDPOINT}}</connectorUrl>
+    <!-- Required for JWT public-key auth (NOT in the Apex-requiring list). -->
     <keyProvisioningSupported>true</keyProvisioningSupported>
-    <partnerPhoneNumbersSupported>true</partnerPhoneNumbersSupported>
+    <!-- Every feature that the validator says requires IntegrationClass
+         is explicitly disabled so the ServiceCloudVoicePartner vendor
+         type doesn't enable them by default. VoxCanvas ships no Apex. -->
+    <einsteinConversationInsightsSupported>false</einsteinConversationInsightsSupported>
+    <userSyncingSupported>false</userSyncingSupported>
+    <partnerTransferDestinationsSupported>false</partnerTransferDestinationsSupported>
+    <partnerContactCenterListSupported>false</partnerContactCenterListSupported>
+    <agentSSOSupported>false</agentSSOSupported>
 </ConversationVendorInfo>

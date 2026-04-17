@@ -54,8 +54,10 @@ describe('renderMetadata', () => {
     assert.match(vendor, /<connectorUrl>/);
     assert.match(vendor, /<vendorType>ServiceCloudVoicePartner<\/vendorType>/);
     // Regression guard: these *Supported flags require an <integrationClass>
-    // (an Apex implementation). VoxCanvas ships no Apex, so enabling any
-    // of them triggers a deploy error. Keep the template minimal.
+    // (an Apex implementation). VoxCanvas ships no Apex, so every one must
+    // be explicitly false — relying on defaults caused the validator to
+    // complain "IntegrationClass を指定します" even when these tags were
+    // absent from the template.
     const apexRequiringFlags = [
       'einsteinConversationInsightsSupported',
       'userSyncingSupported',
@@ -65,7 +67,9 @@ describe('renderMetadata', () => {
     ];
     for (const flag of apexRequiringFlags) {
       assert.ok(!new RegExp(`<${flag}>true</${flag}>`).test(vendor),
-        `${flag} requires <integrationClass> and must stay false or absent`);
+        `${flag} requires <integrationClass> and must be false`);
+      assert.match(vendor, new RegExp(`<${flag}>false</${flag}>`),
+        `${flag} must be explicitly set to false so the ServiceCloudVoicePartner defaults don't enable it`);
     }
 
     result.cleanup();
