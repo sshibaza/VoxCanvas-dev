@@ -298,37 +298,25 @@ function renderStep() {
       document.getElementById('btn-test-connection').addEventListener('click', async () => {
         const resultsDiv = document.getElementById('test-results');
         resultsDiv.classList.remove('hidden');
-        resultsDiv.innerHTML = '<div class="text-sm opacity-50">Saving configuration...</div>';
 
         const scrtBaseUrl = state.scrtBaseUrl || '';
         const orgId = state.orgId || '';
         const callCenterApiName = state.callCenterApiName || '';
-        const callCenterPhone = state.callCenterPhone || '';
 
         if (!scrtBaseUrl || !orgId || !callCenterApiName) {
           resultsDiv.innerHTML =
-            '<div class="text-sm text-sf-error">&#10007; Go back and fill in all required fields.</div>';
+            '<div class="text-sm text-sf-error">&#10007; Prior steps incomplete (Org / Contact Center not set).</div>';
           return;
         }
 
-        const saveResult = await fetch('/api/setup/complete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            scrtBaseUrl, orgId, callCenterApiName, callCenterPhone,
-          }),
-        }).then((r) => r.json());
-
-        if (saveResult.success) {
-          resultsDiv.innerHTML = `
-            <div class="flex items-center gap-2 text-sm"><span class="text-sf-success">&#10003;</span> Configuration saved</div>
-            <div class="flex items-center gap-2 text-sm"><span class="text-sf-orange">&#9888;</span> Restart server to test JWT auth</div>
-          `;
-          const btn = document.getElementById('btn-test-next');
-          btn.classList.remove('opacity-30', 'pointer-events-none');
-        } else {
-          resultsDiv.innerHTML = `<div class="text-sm text-sf-error">&#10007; ${saveResult.message}</div>`;
-        }
+        resultsDiv.innerHTML = `
+          <div class="flex items-center gap-2 text-sm"><span class="text-sf-success">&#10003;</span> Org: ${state.orgAlias}</div>
+          <div class="flex items-center gap-2 text-sm"><span class="text-sf-success">&#10003;</span> SCRT URL: <code class="text-xs">${scrtBaseUrl}</code></div>
+          <div class="flex items-center gap-2 text-sm"><span class="text-sf-success">&#10003;</span> Contact Center: ${callCenterApiName}</div>
+          <div class="flex items-center gap-2 text-sm mt-2"><span class="text-sf-orange">&#9888;</span> JWT auth is tested after .env save in the next step.</div>
+        `;
+        const btn = document.getElementById('btn-test-next');
+        btn.classList.remove('opacity-30', 'pointer-events-none');
       });
       break;
 
