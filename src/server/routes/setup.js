@@ -5,6 +5,19 @@ import path from 'node:path';
 import { Logger } from '../setup/logger.js';
 import { ProcessRegistry } from '../setup/processRegistry.js';
 
+function openSse(res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  const send = (event, data) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  return send;
+}
+
 // Restrict destructive setup endpoints to local calls only. The wizard
 // generates certs, runs openssl, and writes .env — not something we want
 // reachable from the LAN if someone binds to 0.0.0.0 or runs behind a proxy.
@@ -271,6 +284,35 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       res.json({ alias, username: r.username, orgId: r.id, instanceUrl: r.instanceUrl, myDomainUrl, scrtBaseUrl });
     } catch (err) {
       res.status(500).json({ error: true, code: 'SF_DISPLAY_FAILED', message: err.message });
+    }
+  });
+
+  router.post('/setup/org/login', async (req, res) => {
+    const { alias } = req.body || {};
+    if (!alias || !/^[A-Za-z0-9._-]+$/.test(alias)) {
+      return res.status(400).json({ error: true, code: 'INVALID_ALIAS', message: 'alias required (alnum/._-)' });
+    }
+    const { randomUUID } = await import('node:crypto');
+    const runId = randomUUID();
+    logger.open(runId);
+    routerState.lastRunIds.orgLogin = runId;
+    const send = openSse(res);
+    const unsubscribe = logger.subscribe(runId, (ev) => send('log', ev));
+    send('log', { ts: new Date().toISOString(), level: 'info', step: 'org-login', action: 'prepare', message: `Launching sf org login web --alias ${alias}` });
+    try {
+      const { runCommand } = await import('../setup/sfRunner.js');
+      const { exitCode } = await runCommand({
+        command: 'sf',
+        args: ['org', 'login', 'web', '--alias', alias],
+        onLine: (line, stream) => logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'org-login', action: 'sf-exec', message: line }),
+      });
+      send('done', { success: exitCode === 0, runId, exitCode });
+    } catch (err) {
+      send('done', { success: false, runId, message: err.message });
+    } finally {
+      unsubscribe();
+      await logger.close(runId);
+      res.end();
     }
   });
 
