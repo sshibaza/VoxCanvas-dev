@@ -458,5 +458,50 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
+  router.post('/setup/ngrok/start', async (req, res) => {
+    const { port = 3030 } = req.body || {};
+    if (typeof port !== 'number' || port < 1 || port > 65535) {
+      return res.status(400).json({ error: true, code: 'INVALID_PORT', message: 'port must be 1-65535' });
+    }
+    const { randomUUID } = await import('node:crypto');
+    const { startNgrok } = await import('../setup/ngrokRunner.js');
+    const runId = randomUUID();
+    logger.open(runId);
+    try {
+      const { url, pid } = await startNgrok({ port, registry, logger, runId });
+      res.json({ url, pid, runId });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'NGROK_FAILED', message: err.message, runId });
+    } finally {
+      await logger.close(runId);
+    }
+  });
+
+  router.post('/setup/ngrok/stop', async (req, res) => {
+    await registry.stop('ngrok');
+    res.json({ stopped: true });
+  });
+
+  router.get('/setup/processes', (req, res) => {
+    res.json({ processes: registry.list() });
+  });
+
+  router.post('/setup/processes/stop-all', async (req, res) => {
+    await registry.stopAll();
+    res.json({ stopped: true });
+  });
+
+  router.get('/setup/logs/:runId', (req, res) => {
+    const { runId } = req.params;
+    if (!/^[A-Za-z0-9-]+$/.test(runId)) {
+      return res.status(400).json({ error: true, code: 'INVALID_RUN_ID' });
+    }
+    const file = `logs/setup-${runId}.log`;
+    if (!fs.existsSync(file)) {
+      return res.status(404).json({ error: true, code: 'NOT_FOUND' });
+    }
+    res.type('text/plain').send(fs.readFileSync(file, 'utf-8'));
+  });
+
   return router;
 }
