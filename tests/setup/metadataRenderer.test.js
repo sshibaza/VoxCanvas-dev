@@ -36,14 +36,22 @@ describe('renderMetadata', () => {
     const projectFile = path.join(result.tmpDir, 'sfdx-project.json');
     const srcRoot = path.join(result.tmpDir, 'force-app', 'main', 'default');
     const vendorFile = path.join(srcRoot, 'ConversationVendorInformation', 'VoxCanvas.ConversationVendorInformation-meta.xml');
+    const classFile = path.join(srcRoot, 'classes', 'VoxCanvasTelephonyStub.cls');
+    const classMeta = path.join(srcRoot, 'classes', 'VoxCanvasTelephonyStub.cls-meta.xml');
     const ccDir = path.join(srcRoot, 'contactCenters');
     const strayPkg = path.join(result.tmpDir, 'package.xml');
 
     assert.ok(fs.existsSync(projectFile), 'sfdx-project.json must exist so sf CLI recognises the workspace');
     assert.ok(fs.existsSync(vendorFile), 'vendor XML must be under force-app/main/default/ConversationVendorInformation');
+    assert.ok(fs.existsSync(classFile), 'Apex stub .cls must be copied — ServiceCloudVoicePartner requires integrationClass');
+    assert.ok(fs.existsSync(classMeta), 'Apex stub .cls-meta.xml must be copied for it to deploy');
     assert.ok(!fs.existsSync(ccDir), 'contactCenters/ must NOT exist — CC is not a Metadata API type');
     assert.ok(!fs.existsSync(strayPkg), 'No hand-authored package.xml — sf CLI generates it from the source tree');
     assert.equal(result.sourceDir, 'force-app');
+    // integrationClass must be wired into the vendor XML so the stub
+    // is not orphaned at deploy time.
+    const vendorWithClass = fs.readFileSync(vendorFile, 'utf-8');
+    assert.match(vendorWithClass, /<integrationClass>VoxCanvasTelephonyStub<\/integrationClass>/);
 
     const vendor = fs.readFileSync(vendorFile, 'utf-8');
     assert.match(vendor, /https:\/\/abc\.ngrok\.io/);
