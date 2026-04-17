@@ -63,6 +63,7 @@ export function createSetupRouter(scrt2Client) {
     selectedOrgAlias: null,
     selectedOrgUsername: null,
     lastRunIds: {},
+    ngrok: null, // { url, pid, runId } while ngrok tunnel is live
   };
 
   router.get('/setup/status', (req, res) => {
@@ -274,7 +275,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-4] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-5] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -549,11 +550,29 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
+  router.get('/setup/ngrok/status', (req, res) => {
+    const running = registry.list().some((p) => p.name === 'ngrok');
+    if (!running) {
+      routerState.ngrok = null;
+      return res.json({ running: false });
+    }
+    res.json({ running: true, ...(routerState.ngrok || {}) });
+  });
+
   router.post('/setup/ngrok/start', async (req, res) => {
     const { port = 3030 } = req.body || {};
     if (typeof port !== 'number' || port < 1 || port > 65535) {
       return res.status(400).json({ error: true, code: 'INVALID_PORT', message: 'port must be 1-65535' });
     }
+
+    // Idempotent: if a tunnel is already registered and we have its URL,
+    // return that instead of spawning a second ngrok. Prevents duplicate
+    // tunnels when the user revisits Step 4.
+    const alreadyRunning = registry.list().some((p) => p.name === 'ngrok');
+    if (alreadyRunning && routerState.ngrok?.url) {
+      return res.json({ ...routerState.ngrok, reused: true });
+    }
+
     const { randomUUID } = await import('node:crypto');
     const { startNgrok } = await import('../setup/ngrokRunner.js');
     const runId = randomUUID();
@@ -563,9 +582,11 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     routerState.lastRunIds.ngrok = runId;
     try {
       const { url, pid } = await startNgrok({ port, registry, logger, runId });
+      routerState.ngrok = { url, pid, runId };
       res.json({ url, pid, runId });
     } catch (err) {
       await logger.close(runId);
+      routerState.ngrok = null;
       res.status(500).json({ error: true, code: 'NGROK_FAILED', message: err.message, runId });
     }
   });
@@ -577,6 +598,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       await logger.close(runId);
       routerState.lastRunIds.ngrok = null;
     }
+    routerState.ngrok = null;
     res.json({ stopped });
   });
 
