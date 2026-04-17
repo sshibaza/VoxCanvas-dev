@@ -241,12 +241,24 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
+  // Strip ANSI escape sequences (color / cursor codes). sf CLI prints
+  // coloured JSON even with --json when stdout is not a TTY in some shells.
+  function stripAnsi(s) {
+    return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  }
+
   function runSfJson(args) {
     // Capture stderr in the thrown error so the client sees real failures
     // (e.g. sf not on PATH, auth expired) instead of an opaque 500.
+    // NO_COLOR / FORCE_COLOR=0 / TERM=dumb all disable colour output in
+    // sf CLI's chalk; we set NO_COLOR as the most widely respected.
     try {
-      const stdout = execFileSync('sf', args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
-      return JSON.parse(stdout);
+      const stdout = execFileSync('sf', args, {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', TERM: 'dumb' },
+      });
+      return JSON.parse(stripAnsi(stdout));
     } catch (err) {
       const stderr = err.stderr ? err.stderr.toString().trim() : '';
       const msg = stderr || err.message;
