@@ -24,13 +24,13 @@ describe('ProcessRegistry', () => {
     assert.equal(reg.list().length, 0);
   });
 
-  test('stop() sends SIGTERM to named process', async () => {
+  test('stop() awaits SIGTERM exit', async () => {
     const reg = new ProcessRegistry();
     const child = spawn('node', ['-e', 'setTimeout(()=>{}, 10000)']);
     reg.register('kill-me', child);
     await reg.stop('kill-me');
-    await new Promise((resolve) => child.on('exit', resolve));
     assert.equal(child.killed, true);
+    assert.equal(child.signalCode, 'SIGTERM');
   });
 
   test('stopAll() stops everything registered', async () => {

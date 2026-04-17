@@ -24,13 +24,12 @@ export class ProcessRegistry {
     const entry = this.entries.get(name);
     if (!entry) return false;
     const { child } = entry;
-    // Remove from registry immediately so list() and stopAll() are consistent.
-    this.entries.delete(name);
-    // Send SIGTERM; schedule SIGKILL escalation on timeout.
+    const exited = new Promise((resolve) => child.once('exit', resolve));
     child.kill('SIGTERM');
-    setTimeout(() => {
-      if (child.exitCode === null) child.kill('SIGKILL');
-    }, timeoutMs);
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    await exited;
+    clearTimeout(timer);
+    this.entries.delete(name);
     return true;
   }
 
