@@ -36,8 +36,8 @@ describe('renderMetadata', () => {
     const projectFile = path.join(result.tmpDir, 'sfdx-project.json');
     const srcRoot = path.join(result.tmpDir, 'force-app', 'main', 'default');
     const vendorFile = path.join(srcRoot, 'ConversationVendorInformation', 'VoxCanvas.ConversationVendorInformation-meta.xml');
-    const classFile = path.join(srcRoot, 'classes', 'VoxCanvasTelephonyStub.cls');
-    const classMeta = path.join(srcRoot, 'classes', 'VoxCanvasTelephonyStub.cls-meta.xml');
+    const classFile = path.join(srcRoot, 'classes', 'VoxCanvasTelephonyIntegration.cls');
+    const classMeta = path.join(srcRoot, 'classes', 'VoxCanvasTelephonyIntegration.cls-meta.xml');
     const ccDir = path.join(srcRoot, 'contactCenters');
     const strayPkg = path.join(result.tmpDir, 'package.xml');
 
@@ -51,7 +51,7 @@ describe('renderMetadata', () => {
     // integrationClass must be wired into the vendor XML so the stub
     // is not orphaned at deploy time.
     const vendorWithClass = fs.readFileSync(vendorFile, 'utf-8');
-    assert.match(vendorWithClass, /<integrationClass>VoxCanvasTelephonyStub<\/integrationClass>/);
+    assert.match(vendorWithClass, /<integrationClass>VoxCanvasTelephonyIntegration<\/integrationClass>/);
 
     const vendor = fs.readFileSync(vendorFile, 'utf-8');
     assert.match(vendor, /https:\/\/abc\.ngrok\.io/);

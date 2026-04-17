@@ -275,7 +275,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-14] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-15] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }

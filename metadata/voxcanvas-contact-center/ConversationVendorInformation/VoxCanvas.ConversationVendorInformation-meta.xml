@@ -10,7 +10,7 @@
          Apex class shipped alongside this file (deployed in the same
          payload) that satisfies the platform check without VoxCanvas
          needing any real Apex logic. -->
-    <integrationClass>VoxCanvasTelephonyStub</integrationClass>
+    <integrationClass>VoxCanvasTelephonyIntegration</integrationClass>
     <!-- Required for JWT public-key auth (NOT in the Apex-requiring list). -->
     <keyProvisioningSupported>true</keyProvisioningSupported>
     <!-- Every feature that the validator says requires IntegrationClass
