@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { runCommand } from '../../src/server/setup/sfRunner.js';
+import { runCommand, stripAnsi } from '../../src/server/setup/sfRunner.js';
 
 describe('runCommand', () => {
   test('captures stdout of a successful command', async () => {
@@ -42,5 +42,28 @@ describe('runCommand', () => {
       onLine: (line) => lines.push(line),
     });
     assert.equal(lines[0], '$HOME');
+  });
+
+  test('strips ANSI colour escapes from output', async () => {
+    const lines = [];
+    await runCommand({
+      command: 'node',
+      args: ['-e', 'process.stdout.write("\\u001b[97m{\\u001b[39m}\\n")'],
+      onLine: (line) => lines.push(line),
+    });
+    assert.equal(lines[0], '{}');
+  });
+});
+
+describe('stripAnsi', () => {
+  test('removes foreground color codes', () => {
+    assert.equal(stripAnsi('\x1b[97m{\x1b[39m}'), '{}');
+  });
+  test('leaves plain text unchanged', () => {
+    assert.equal(stripAnsi('plain'), 'plain');
+  });
+  test('handles empty / falsy', () => {
+    assert.equal(stripAnsi(''), '');
+    assert.equal(stripAnsi(null), null);
   });
 });
