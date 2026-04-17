@@ -4,9 +4,5 @@
         <members>VoxCanvas</members>
         <name>ConversationVendorInfo</name>
     </types>
-    <types>
-        <members>{{CC_DEVELOPER_NAME}}</members>
-        <name>ContactCenter</name>
-    </types>
     <version>61.0</version>
 </Package>

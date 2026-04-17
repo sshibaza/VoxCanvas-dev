@@ -74,6 +74,11 @@ export function renderMetadata({ templatesDir, values }) {
   fs.writeFileSync(path.join(tmpDir, 'sfdx-project.json'), SFDX_PROJECT_JSON);
   const metadataDir = path.join(tmpDir, 'metadata');
   copyAndRender(templatesDir, metadataDir, encodedValues);
+  // ContactCenter is NOT a Metadata API type — it is created via the
+  // Setup UI's import flow OR via direct REST sObject insert. Only the
+  // ConversationVendorInfo vendor is deployed here; the Contact Center
+  // record is created separately by the /setup/cc/deploy endpoint using
+  // the ContactCenter sObject REST API.
   return {
     tmpDir,
     metadataDir: 'metadata',

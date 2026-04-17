@@ -275,7 +275,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-8] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-9] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -461,20 +461,16 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     let rendered = null;
     try {
       const pem = fs.readFileSync(jwtPem, 'utf-8');
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Rendering metadata (endpoint=${serviceEndpoint}, cc=${developerName})` });
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Rendering metadata (endpoint=${serviceEndpoint}, vendor=VoxCanvas)` });
       rendered = renderMetadata({
         templatesDir: path.resolve('metadata/voxcanvas-contact-center'),
-        values: {
-          SERVICE_ENDPOINT: serviceEndpoint,
-          CC_DEVELOPER_NAME: developerName,
-          CC_MASTER_LABEL: masterLabel,
-          PUBLIC_KEY_PEM: pem,
-        },
+        values: { SERVICE_ENDPOINT: serviceEndpoint },
       });
-      // Run sf from inside the rendered tmp dir so it recognises the
-      // sfdx-project.json we wrote there. ContactCenter isn't in the
-      // source-deploy-retrieve registry, so we deploy the MDAPI tree
-      // via --metadata-dir (package.xml drives type resolution).
+
+      // --- Phase 1: Deploy ConversationVendorInfo via Metadata API ---
+      // ContactCenter is NOT a Metadata API type, so package.xml only
+      // references ConversationVendorInfo. The CC record is created
+      // via REST in Phase 2.
       logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `(cwd=${rendered.tmpDir}) sf project deploy start --metadata-dir ${rendered.metadataDir} --target-org ${routerState.selectedOrgAlias}` });
       const { exitCode } = await runCommand({
         command: 'sf',
@@ -486,7 +482,59 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
           if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
         },
       });
-      send('done', { success: exitCode === 0, runId, exitCode, callCenterApiName: developerName });
+      if (exitCode !== 0) {
+        send('done', { success: false, runId, exitCode, message: 'ConversationVendorInfo deploy failed' });
+        return;
+      }
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: 'Phase 1: ConversationVendorInfo deployed successfully' });
+
+      // --- Phase 2: Create ContactCenter sObject record via REST ---
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: 'Phase 2: Creating ContactCenter record via REST API' });
+      const display = runSfJson(['org', 'display', '--target-org', routerState.selectedOrgAlias, '--verbose', '--json']);
+      const { accessToken, instanceUrl } = display?.result || {};
+      if (!accessToken || !instanceUrl) {
+        throw new Error('sf org display did not return accessToken or instanceUrl');
+      }
+
+      const axios = (await import('axios')).default;
+      const apiVersion = 'v60.0';
+      const auth = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+
+      // 2a: look up the vendor we just deployed
+      const vendorQuery = `SELECT Id FROM ConversationVendorInfo WHERE DeveloperName = 'VoxCanvas'`;
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `GET query ${vendorQuery}` });
+      const vendorResp = await axios.get(
+        `${instanceUrl}/services/data/${apiVersion}/query/?q=${encodeURIComponent(vendorQuery)}`,
+        { headers: auth, validateStatus: () => true },
+      );
+      if (vendorResp.status !== 200 || !vendorResp.data?.records?.length) {
+        throw new Error(`ConversationVendorInfo 'VoxCanvas' not found after deploy: ${JSON.stringify(vendorResp.data)}`);
+      }
+      const vendorId = vendorResp.data.records[0].Id;
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `Vendor Id: ${vendorId}` });
+
+      // 2b: create the ContactCenter sObject record
+      const ccBody = {
+        DeveloperName: developerName,
+        MasterLabel: masterLabel,
+        ConversationVendorInfoId: vendorId,
+        PublicKey: pem,
+      };
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'rest', message: `POST /sobjects/ContactCenter ${JSON.stringify({ ...ccBody, PublicKey: '<pem hidden>' })}` });
+      const ccResp = await axios.post(
+        `${instanceUrl}/services/data/${apiVersion}/sobjects/ContactCenter/`,
+        ccBody,
+        { headers: auth, validateStatus: () => true },
+      );
+      if (ccResp.status < 200 || ccResp.status >= 300 || !ccResp.data?.success) {
+        const errDetail = JSON.stringify(ccResp.data);
+        logger.log(runId, { level: 'error', step: 'deploy', action: 'rest', message: `ContactCenter create failed (${ccResp.status}): ${errDetail}` });
+        throw new Error(`ContactCenter create failed: ${errDetail}`);
+      }
+      const contactCenterId = ccResp.data.id;
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: `ContactCenter created: ${contactCenterId}` });
+
+      send('done', { success: true, runId, exitCode: 0, callCenterApiName: developerName, contactCenterId });
     } catch (err) {
       logger.log(runId, { level: 'error', step: 'deploy', action: 'sf-exec', message: err.message });
       const hint = matchHint(err.message);
