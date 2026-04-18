@@ -195,9 +195,9 @@ function renderStep() {
       container.innerHTML = `
         <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
-          ウィザードが <code>ConversationVendorInfo</code> と Apex stub を自動デプロイし、
-          Contact Center 用の Import XML(JWT 公開鍵埋め込み済)を生成します。
-          生成した XML を Salesforce の Setup UI から 1 クリックで Import してください。
+          ウィザードが <code>ConversationVendorInfo</code> + Apex stub + <code>CallCenter</code> を
+          Metadata API で自動デプロイします。JWT 公開鍵 (<code>jwt.pem</code>) も CallCenter レコードに
+          埋め込まれるので、手動作業は不要です。
         </div>
 
         <div class="bg-white/5 border border-white/10 rounded p-3 mb-4 text-sm">
@@ -368,132 +368,7 @@ function renderStep() {
       // exists. Metadata API cannot deploy a Partner Telephony
       // CallCenter directly — the schema is locked to classic CTI
       // fields — so Setup UI Import is the only supported path.
-      // We intentionally do NOT deep-link to a Setup URL — the Contact
-      // Centers page path has shifted across Salesforce releases and a
-      // stale URL shows "Page Not Found". Describe the navigation
-      // steps instead; the Quick Find flow is stable across releases.
-      function renderImportPanel(developerName, masterLabel) {
-        const mount = document.getElementById('deploy-log');
-        mount.insertAdjacentHTML('beforeend', `
-          <div id="import-panel" class="mt-6 bg-white/5 border border-sf-blue/30 rounded p-4 text-sm">
-            <div class="font-semibold mb-2">Next: Import the Contact Center XML</div>
-            <div class="opacity-70 text-xs leading-relaxed mb-3">
-              <code>ConversationVendorInfo</code> のデプロイは完了しました。
-              Partner Telephony 用 Contact Center は Metadata API デプロイ対象外のため、
-              Salesforce の Setup UI から Import してください。JWT 公開鍵 (<code>jwt.pem</code>) は
-              XML に埋め込み済みです。
-            </div>
-
-            <div class="bg-black/20 border border-white/10 rounded p-2 mb-3 text-xs">
-              <label class="block opacity-60 mb-1">Conversation Vendor Info (XML の <code>reqVendorInfoApiName</code> に書き込む値)</label>
-              <select id="vendor-select" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-xs font-mono">
-                <option>Loading vendors...</option>
-              </select>
-              <div class="opacity-50 mt-1">
-                Setup UI の <b>[Import]</b> で選ぶベンダーと <b>一致している必要があります</b>。
-                不一致だと <i>"XML ファイル内のベンダー名は、選択したベンダーの名前に一致する必要があります"</i> で失敗します。
-              </div>
-            </div>
-
-            <ol class="list-decimal ml-5 space-y-2 text-xs mb-4">
-              <li>
-                <a id="btn-download-xml" href="#" download="${developerName}.callCenter.xml" class="inline-block bg-sf-success/30 hover:bg-sf-success/50 px-3 py-1.5 rounded text-sm font-semibold opacity-50 pointer-events-none">
-                  Download ${developerName}.callCenter.xml &#8681;
-                </a>
-              </li>
-              <li>
-                Salesforce の <b>Setup</b> を開き、Quick Find に <code>Contact Centers</code> と入力 →
-                <b>Service Cloud Voice → Contact Centers</b> を選択
-              </li>
-              <li>画面上部の <b>[Import]</b> をクリック → Vendor ドロップダウンで <b>上で選択したベンダー</b> を選ぶ → 先ほどダウンロードした <code>${developerName}.callCenter.xml</code> を選択 → <b>[Import]</b></li>
-              <li>作成された Contact Center を開き、内容を確認して <b>[Save]</b></li>
-              <li>下の <b>Verify</b> ボタンでウィザードに通知</li>
-            </ol>
-            <div class="flex items-center gap-3">
-              <button id="btn-verify-cc" class="bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-1.5 rounded text-sm font-semibold">Verify</button>
-              <div id="verify-status" class="text-xs opacity-70">Import が完了したら Verify を押してください。</div>
-            </div>
-          </div>
-        `);
-
-        // Load vendor list from SOQL so the reqVendorInfoApiName in the
-        // downloaded XML always matches what the Setup UI Import
-        // dropdown will offer. Default to the one we just deployed
-        // ("VoxCanvas") if present.
-        const vendorSelect = document.getElementById('vendor-select');
-        const downloadLink = document.getElementById('btn-download-xml');
-        function updateDownloadHref() {
-          const vendorName = vendorSelect.value;
-          if (!vendorName) return;
-          downloadLink.href = `/api/setup/cc/import-xml?developerName=${encodeURIComponent(developerName)}`
-            + `&masterLabel=${encodeURIComponent(masterLabel)}`
-            + `&vendorDeveloperName=${encodeURIComponent(vendorName)}`;
-          downloadLink.classList.remove('opacity-50', 'pointer-events-none');
-        }
-        vendorSelect.addEventListener('change', updateDownloadHref);
-        (async () => {
-          try {
-            const r = await fetch('/api/setup/cc/vendors').then((x) => x.json());
-            const vendors = r.vendors || [];
-            if (vendors.length === 0) {
-              vendorSelect.innerHTML = '<option value="">(no ConversationVendorInfo found — did deploy succeed?)</option>';
-              return;
-            }
-            vendorSelect.innerHTML = vendors.map((v) => {
-              const ns = v.namespacePrefix ? ` [${v.namespacePrefix}]` : '';
-              return `<option value="${v.apiName}">${v.masterLabel}${ns} — ${v.apiName}</option>`;
-            }).join('');
-            // Prefer our own "VoxCanvas" vendor as the default if it
-            // exists in the list; otherwise use whatever is first.
-            const ours = vendors.findIndex((v) => v.apiName === 'VoxCanvas');
-            vendorSelect.selectedIndex = ours >= 0 ? ours : 0;
-            updateDownloadHref();
-          } catch (err) {
-            vendorSelect.innerHTML = `<option value="">(failed to load vendors: ${err.message})</option>`;
-          }
-        })();
-
-        const statusEl = document.getElementById('verify-status');
-        const verifyBtn = document.getElementById('btn-verify-cc');
-        // First check on mount is "silent" — if the CC already exists
-        // (admin re-running the wizard after a previous import), we
-        // light up Next; but if it doesn't (the common case — admin
-        // has not imported yet), we show a neutral "waiting" message
-        // rather than a red error. Subsequent Verify clicks show the
-        // red "not found" error because at that point the admin has
-        // claimed to have imported.
-        let firstCheck = true;
-        async function verifyOnce() {
-          statusEl.innerHTML = '<span class="opacity-70">Checking...</span>';
-          try {
-            const r = await fetch(`/api/setup/cc/check?name=${encodeURIComponent(developerName)}`).then((x) => x.json());
-            if (r.exists) {
-              statusEl.innerHTML = `<span class="text-sf-success">&#10003; ContactCenter found (Id=${r.id})</span>`;
-              state.callCenterApiName = developerName;
-              document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
-              verifyBtn.disabled = true;
-              verifyBtn.classList.add('opacity-50', 'pointer-events-none');
-              firstCheck = false;
-              return true;
-            }
-            if (firstCheck) {
-              statusEl.innerHTML = '<span class="opacity-70">Import が完了したら Verify を押してください。</span>';
-            } else {
-              statusEl.innerHTML = '<span class="text-sf-error">&#10007; まだ見つかりません。Setup UI で Import を完了してから再度 Verify してください。</span>';
-            }
-            firstCheck = false;
-            return false;
-          } catch (err) {
-            statusEl.innerHTML = `<span class="text-sf-error">Verify failed: ${err.message}</span>`;
-            firstCheck = false;
-            return false;
-          }
-        }
-        verifyBtn.addEventListener('click', verifyOnce);
-        // Initial silent check — skips the Import step entirely if
-        // the CC was already imported in a prior wizard run.
-        verifyOnce();
-      }
+      // (Reverted: we now deploy everything via MDAPI — see PR #28.)
 
       document.getElementById('btn-deploy').addEventListener('click', async () => {
         if (!state.serviceEndpoint) {
@@ -503,6 +378,11 @@ function renderStep() {
         const serviceEndpoint = state.serviceEndpoint;
         const developerName = document.getElementById('cc-dev-name').value.trim();
         const masterLabel = document.getElementById('cc-label').value.trim();
+
+        const check = await fetch(`/api/setup/cc/check?name=${encodeURIComponent(developerName)}`).then((x) => x.json());
+        if (check.exists) {
+          if (!confirm(`Contact Center "${developerName}" already exists (Id=${check.id}). Overwrite?`)) return;
+        }
 
         const deployBtn = document.getElementById('btn-deploy');
         deployBtn.disabled = true;
@@ -517,15 +397,14 @@ function renderStep() {
               logPanel.attachFile(data.runId);
               if (data.success) {
                 deployedOk = true;
-                renderImportPanel(data.callCenterApiName, data.masterLabel || masterLabel);
+                state.callCenterApiName = data.callCenterApiName;
+                document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
               }
             }
           });
         } catch (err) {
           logPanel.append(`streamSse failed: ${err.message}`, 'error');
         } finally {
-          // Re-enable Deploy only on failure; on success the admin's
-          // next action is the Import flow, not a re-deploy.
           if (!deployedOk) {
             deployBtn.disabled = false;
             deployBtn.classList.remove('opacity-50', 'pointer-events-none');
