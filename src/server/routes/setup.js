@@ -294,7 +294,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-25] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-26] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -447,96 +447,6 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
-  // Returns the list of ConversationVendorInfo records the org can see,
-  // so the wizard can let the admin pick the exact vendor that matches
-  // what Setup UI's Import dropdown will offer.
-  //
-  // Why this exists: "XML ファイル内のベンダー名は、選択したベンダーの
-  // 名前に一致する必要があります。" is surfaced by the Setup UI Import
-  // when reqVendorInfoApiName in the XML does not exactly match the
-  // DeveloperName of the vendor the admin picked from the dropdown.
-  // Hardcoding "VoxCanvas" fails if the org has additional vendors
-  // from managed packages (namespace__Name format) or prior deploys.
-  router.get('/setup/cc/vendors', (req, res) => {
-    if (!routerState.selectedOrgAlias) {
-      return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
-    }
-    try {
-      const soql = 'SELECT DeveloperName, MasterLabel, NamespacePrefix FROM ConversationVendorInfo ORDER BY MasterLabel';
-      const out = runSfJson(['data', 'query', '-q', soql, '--target-org', routerState.selectedOrgAlias, '--json']);
-      const records = out?.result?.records || [];
-      const vendors = records.map((r) => ({
-        developerName: r.DeveloperName,
-        masterLabel: r.MasterLabel,
-        namespacePrefix: r.NamespacePrefix || null,
-        // The value the XML's reqVendorInfoApiName must carry. For an
-        // unmanaged deploy this equals DeveloperName. For a vendor
-        // that came from a managed package with namespace `ns`, the
-        // fully qualified API name is `ns__DeveloperName`.
-        apiName: r.NamespacePrefix ? `${r.NamespacePrefix}__${r.DeveloperName}` : r.DeveloperName,
-      }));
-      res.json({ vendors });
-    } catch (err) {
-      res.status(500).json({ error: true, code: 'SF_QUERY_FAILED', message: err.message });
-    }
-  });
-
-  // Returns the Setup-UI Import-format CallCenter XML as a downloadable
-  // file, pre-populated with developerName / masterLabel / vendor ref /
-  // JWT public-key PEM. The admin then imports it via Setup → Service
-  // Cloud Voice → Contact Centers → Import. This is the only supported
-  // path for provisioning a Partner Telephony Contact Center — the
-  // Metadata API CallCenter type does not accept Partner Telephony fields.
-  router.get('/setup/cc/import-xml', async (req, res) => {
-    const developerName = String(req.query.developerName || '');
-    const masterLabel = String(req.query.masterLabel || '');
-    // vendorDeveloperName is what goes into <reqVendorInfoApiName>.
-    // MUST match the DeveloperName of the vendor the admin selects in
-    // Setup UI Import, otherwise Salesforce rejects with "XML ファイル
-    // 内のベンダー名は、選択したベンダーの名前に一致する必要があります。"
-    // Default is our own deployed vendor ("VoxCanvas"). The UI now
-    // exposes /setup/cc/vendors so the admin can override if their org
-    // has the vendor under a namespace prefix or a different name.
-    const vendorDeveloperName = String(req.query.vendorDeveloperName || 'VoxCanvas');
-    // Salesforce CallCenter InternalName (reqInternalName) rules:
-    // alphanumeric only (NO underscore), must start with a letter,
-    // max 40 chars, unique per org. Violating this surfaces at Import
-    // time as "この値は、英数字 40 文字に制限されており、先頭は英字で
-    // 始まり、組織内の各コールセンターでユニークである必要があります。"
-    if (!/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(developerName)) {
-      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must start with a letter and contain only A-Z / a-z / 0-9 (no underscore, max 40 chars)' });
-    }
-    // vendor DeveloperName allows underscore (required for
-    // `namespace__Name` managed-package vendors) but no other symbols.
-    if (!/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(vendorDeveloperName)) {
-      return res.status(400).json({ error: true, code: 'INVALID_VENDOR_NAME', message: 'vendorDeveloperName must start with a letter, allow only A-Z / a-z / 0-9 / _ (max 80 chars)' });
-    }
-    // masterLabel is rendered into XML text nodes; escape, but also cap
-    // length to avoid pathological inputs.
-    if (!masterLabel || masterLabel.length > 120) {
-      return res.status(400).json({ error: true, code: 'INVALID_LABEL', message: 'masterLabel required, max 120 chars' });
-    }
-    const jwtPemPath = 'certs/jwt.pem';
-    if (!fs.existsSync(jwtPemPath)) {
-      return res.status(400).json({ error: true, code: 'NO_CERT', message: 'run certificate step first' });
-    }
-    try {
-      const { renderCallCenterImportXml } = await import('../setup/ccImportXml.js');
-      const pem = fs.readFileSync(jwtPemPath, 'utf-8');
-      const xml = renderCallCenterImportXml({
-        developerName,
-        masterLabel,
-        vendorDeveloperName,
-        jwtPem: pem,
-      });
-      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${developerName}.callCenter.xml"`);
-      res.send(xml);
-    } catch (err) {
-      res.status(500).json({ error: true, code: 'RENDER_FAILED', message: err.message });
-    }
-  });
-
   router.post('/setup/cc/deploy', async (req, res) => {
     const { serviceEndpoint, developerName, masterLabel } = req.body || {};
     if (!serviceEndpoint || !developerName || !masterLabel) {
@@ -571,48 +481,81 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
 
     let rendered = null;
     try {
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Rendering metadata (endpoint=${serviceEndpoint}, vendor=VoxCanvas)` });
+      const pem = fs.readFileSync(jwtPem, 'utf-8');
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Rendering metadata (endpoint=${serviceEndpoint}, vendor=VoxCanvas, cc=${developerName})` });
       rendered = renderMetadata({
         templatesDir: path.resolve('metadata/voxcanvas-contact-center'),
-        values: { SERVICE_ENDPOINT: serviceEndpoint },
-      });
-
-      // Deploy ONLY the ConversationVendorInfo vendor metadata + the
-      // Apex stub it references. The ContactCenter record itself is
-      // created via Setup UI Import (the wizard generates a ready to
-      // use XML and the admin imports it in one click).
-      //
-      // Why not also deploy the CallCenter via Metadata API? The
-      // Metadata API CallCenter type schema is locked to classic CTI
-      // fields (reqVersion, reqDescription, reqProgId, reqAdapterUrl,
-      // ...) and does not accept Partner Telephony fields (reqInternalName,
-      // reqVendorInfoApiName, ...). Confirmed by a live deploy that
-      // failed validator with exactly that required field list. The
-      // Setup UI Import path accepts a different XML format with the
-      // Partner Telephony fields, and is the only supported automation
-      // surface for Partner Telephony Contact Centers.
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `(cwd=${rendered.tmpDir}) sf project deploy start --metadata ConversationVendorInfo:VoxCanvas --metadata ApexClass:VoxCanvasTelephonyIntegration --target-org ${routerState.selectedOrgAlias}` });
-      const { exitCode } = await runCommand({
-        command: 'sf',
-        args: [
-          'project', 'deploy', 'start',
-          '--metadata', 'ConversationVendorInfo:VoxCanvas',
-          '--metadata', 'ApexClass:VoxCanvasTelephonyIntegration',
-          '--target-org', routerState.selectedOrgAlias,
-          '--json',
-        ],
-        cwd: rendered.tmpDir,
-        onLine: (line, stream) => {
-          logger.log(runId, { level: sfLogLevel(stream, line), step: 'deploy', action: 'sf-exec', message: line });
-          const hint = matchHint(line);
-          if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
+        values: {
+          SERVICE_ENDPOINT: serviceEndpoint,
+          CC_DEVELOPER_NAME: developerName,
+          CC_MASTER_LABEL: masterLabel,
+          JWT_PEM: pem,
         },
       });
-      if (exitCode !== 0) {
-        send('done', { success: false, runId, exitCode, message: 'Vendor/Apex deploy failed (see log).' });
+
+      // Two-phase MDAPI deploy, because the CallCenter payload
+      // references ConversationVendorInfo by developerName via
+      // reqVendorInfoApiName, and that reference resolves at deploy
+      // validation time against the org's existing records — NOT
+      // against other components in the same payload. Phase 1 lands
+      // the vendor + Apex stub; Phase 2 lands the CallCenter.
+      //
+      // The CallCenter XML uses the Metadata-API format (capital
+      // <CallCenter>, standard xmlns, <sections>/<items> with child
+      // elements) rather than the Setup-UI Import format. The
+      // critical piece that was missing from earlier attempts is
+      //
+      //   <customSettings>{...,"reqCallCenterType":"SCVBYOT",...}</customSettings>
+      //
+      // Without reqCallCenterType=SCVBYOT the MDAPI validator picks
+      // the classic CTI schema and rejects with "セクション
+      // 「reqGeneralInfo」には、「reqVersion, reqDescription,
+      // reqProgId」という名前のアイテムが必要です。" With SCVBYOT,
+      // the validator knows this is a Partner Telephony CC and
+      // accepts reqInternalName / reqVendorInfoApiName /
+      // reqTelephonyIntegrationCertificate. The CallCenter also
+      // ends up visible on the Partner Telephony Contact Centers
+      // Setup page because that page filters by reqCallCenterType.
+      //
+      // Filename rule: sf CLI source-format requires the file to be
+      // named <InternalName>.callCenter-meta.xml, and Salesforce
+      // infers InternalName from the filename. The developerName
+      // regex above enforces alphanumeric-only (no underscore) to
+      // satisfy this.
+      async function runDeploy(label, metadataArgs) {
+        logger.log(runId, { level: 'info', step: 'deploy', action: 'sf-exec', message: `(${label}) (cwd=${rendered.tmpDir}) sf project deploy start ${metadataArgs.join(' ')} --target-org ${routerState.selectedOrgAlias}` });
+        return runCommand({
+          command: 'sf',
+          args: ['project', 'deploy', 'start', ...metadataArgs, '--target-org', routerState.selectedOrgAlias, '--json'],
+          cwd: rendered.tmpDir,
+          onLine: (line, stream) => {
+            logger.log(runId, { level: sfLogLevel(stream, line), step: 'deploy', action: 'sf-exec', message: `[${label}] ${line}` });
+            const hint = matchHint(line);
+            if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
+          },
+        });
+      }
+
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: 'Phase 1/2: Deploy ConversationVendorInfo + ApexClass stub' });
+      const phase1 = await runDeploy('phase1', [
+        '--metadata', 'ConversationVendorInfo:VoxCanvas',
+        '--metadata', 'ApexClass:VoxCanvasTelephonyIntegration',
+      ]);
+      if (phase1.exitCode !== 0) {
+        send('done', { success: false, runId, exitCode: phase1.exitCode, message: 'Phase 1 deploy failed (ConversationVendorInfo / ApexClass). See log.' });
         return;
       }
-      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: 'ConversationVendorInfo + Apex stub deployed. Next: download Contact Center XML and Import via Setup UI.' });
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: 'Phase 1 succeeded — vendor is live; now deploying CallCenter.' });
+
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'prepare', message: `Phase 2/2: Deploy CallCenter ${developerName} (Partner Telephony, reqCallCenterType=SCVBYOT)` });
+      const phase2 = await runDeploy('phase2', [
+        '--metadata', `CallCenter:${developerName}`,
+      ]);
+      if (phase2.exitCode !== 0) {
+        send('done', { success: false, runId, exitCode: phase2.exitCode, message: 'Phase 2 deploy failed (CallCenter). See log.' });
+        return;
+      }
+      logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: `Deploy succeeded: ConversationVendorInfo VoxCanvas + CallCenter ${developerName}` });
 
       send('done', {
         success: true,
