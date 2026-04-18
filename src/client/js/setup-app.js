@@ -374,7 +374,6 @@ function renderStep() {
       // steps instead; the Quick Find flow is stable across releases.
       function renderImportPanel(developerName, masterLabel) {
         const mount = document.getElementById('deploy-log');
-        const xmlHref = `/api/setup/cc/import-xml?developerName=${encodeURIComponent(developerName)}&masterLabel=${encodeURIComponent(masterLabel)}`;
         mount.insertAdjacentHTML('beforeend', `
           <div id="import-panel" class="mt-6 bg-white/5 border border-sf-blue/30 rounded p-4 text-sm">
             <div class="font-semibold mb-2">Next: Import the Contact Center XML</div>
@@ -384,9 +383,21 @@ function renderStep() {
               Salesforce の Setup UI から Import してください。JWT 公開鍵 (<code>jwt.pem</code>) は
               XML に埋め込み済みです。
             </div>
+
+            <div class="bg-black/20 border border-white/10 rounded p-2 mb-3 text-xs">
+              <label class="block opacity-60 mb-1">Conversation Vendor Info (XML の <code>reqVendorInfoApiName</code> に書き込む値)</label>
+              <select id="vendor-select" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-xs font-mono">
+                <option>Loading vendors...</option>
+              </select>
+              <div class="opacity-50 mt-1">
+                Setup UI の <b>[Import]</b> で選ぶベンダーと <b>一致している必要があります</b>。
+                不一致だと <i>"XML ファイル内のベンダー名は、選択したベンダーの名前に一致する必要があります"</i> で失敗します。
+              </div>
+            </div>
+
             <ol class="list-decimal ml-5 space-y-2 text-xs mb-4">
               <li>
-                <a href="${xmlHref}" download="${developerName}.callCenter.xml" class="inline-block bg-sf-success/30 hover:bg-sf-success/50 px-3 py-1.5 rounded text-sm font-semibold">
+                <a id="btn-download-xml" href="#" download="${developerName}.callCenter.xml" class="inline-block bg-sf-success/30 hover:bg-sf-success/50 px-3 py-1.5 rounded text-sm font-semibold opacity-50 pointer-events-none">
                   Download ${developerName}.callCenter.xml &#8681;
                 </a>
               </li>
@@ -394,7 +405,7 @@ function renderStep() {
                 Salesforce の <b>Setup</b> を開き、Quick Find に <code>Contact Centers</code> と入力 →
                 <b>Service Cloud Voice → Contact Centers</b> を選択
               </li>
-              <li>画面上部の <b>[Import]</b> をクリック → 先ほどダウンロードした <code>${developerName}.callCenter.xml</code> を選択 → <b>[Import]</b></li>
+              <li>画面上部の <b>[Import]</b> をクリック → Vendor ドロップダウンで <b>上で選択したベンダー</b> を選ぶ → 先ほどダウンロードした <code>${developerName}.callCenter.xml</code> を選択 → <b>[Import]</b></li>
               <li>作成された Contact Center を開き、内容を確認して <b>[Save]</b></li>
               <li>下の <b>Verify</b> ボタンでウィザードに通知</li>
             </ol>
@@ -404,6 +415,43 @@ function renderStep() {
             </div>
           </div>
         `);
+
+        // Load vendor list from SOQL so the reqVendorInfoApiName in the
+        // downloaded XML always matches what the Setup UI Import
+        // dropdown will offer. Default to the one we just deployed
+        // ("VoxCanvas") if present.
+        const vendorSelect = document.getElementById('vendor-select');
+        const downloadLink = document.getElementById('btn-download-xml');
+        function updateDownloadHref() {
+          const vendorName = vendorSelect.value;
+          if (!vendorName) return;
+          downloadLink.href = `/api/setup/cc/import-xml?developerName=${encodeURIComponent(developerName)}`
+            + `&masterLabel=${encodeURIComponent(masterLabel)}`
+            + `&vendorDeveloperName=${encodeURIComponent(vendorName)}`;
+          downloadLink.classList.remove('opacity-50', 'pointer-events-none');
+        }
+        vendorSelect.addEventListener('change', updateDownloadHref);
+        (async () => {
+          try {
+            const r = await fetch('/api/setup/cc/vendors').then((x) => x.json());
+            const vendors = r.vendors || [];
+            if (vendors.length === 0) {
+              vendorSelect.innerHTML = '<option value="">(no ConversationVendorInfo found — did deploy succeed?)</option>';
+              return;
+            }
+            vendorSelect.innerHTML = vendors.map((v) => {
+              const ns = v.namespacePrefix ? ` [${v.namespacePrefix}]` : '';
+              return `<option value="${v.apiName}">${v.masterLabel}${ns} — ${v.apiName}</option>`;
+            }).join('');
+            // Prefer our own "VoxCanvas" vendor as the default if it
+            // exists in the list; otherwise use whatever is first.
+            const ours = vendors.findIndex((v) => v.apiName === 'VoxCanvas');
+            vendorSelect.selectedIndex = ours >= 0 ? ours : 0;
+            updateDownloadHref();
+          } catch (err) {
+            vendorSelect.innerHTML = `<option value="">(failed to load vendors: ${err.message})</option>`;
+          }
+        })();
 
         const statusEl = document.getElementById('verify-status');
         const verifyBtn = document.getElementById('btn-verify-cc');
