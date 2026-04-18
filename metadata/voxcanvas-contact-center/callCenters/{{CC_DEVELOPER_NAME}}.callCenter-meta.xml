@@ -1,51 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CallCenter xmlns="http://soap.sforce.com/2006/04/metadata">
-    <!--
-         CRITICAL schema notes (this file has been wrong TWICE already —
-         do not "simplify" without reading this comment):
-
-         1. Root element is <CallCenter> (CAPITAL C), NOT <callCenter>.
-            sf CLI's source-deploy-retrieve registry expects the
-            Metadata-API type name casing for the root element. The
-            lowercase <callCenter> variant is a separate XML format
-            used only by Salesforce Setup UI's "Import" button and is
-            NOT accepted by `sf project deploy start`.
-
-         2. xmlns IS required. The previous "fix" that removed it was
-            wrong — Setup-UI import XML is no-namespace, but sf CLI
-            source-format CallCenter IS in the standard metadata
-            namespace. Without xmlns, the validator rejects every
-            child element with "Element {}section invalid".
-
-         3. Structure is <sections>/<items> (PLURAL) with children
-            <name>/<label>/<value>. Attribute-style <section sortOrder=...>
-            is the Setup-UI import format. The Metadata API schema
-            for CallCenter uses named child elements. Getting this
-            wrong produces "Element section invalid at this location
-            in type CallCenter" regardless of namespace.
-
-         Authoritative reference: retrieve any real CallCenter from
-         an org via `sf project retrieve start --metadata CallCenter:X`.
-         Real-world Metadata-API source-format examples on GitHub:
+    <!-- DO NOT revert this file to the lowercase callCenter / section-attribute
+         form. That is the Setup-UI Import format, not the Metadata API source
+         format. Failure chain on record: cc-18 (with xmlns, attributes),
+         cc-19 (no xmlns, attributes), cc-20 (Metadata API format, per-file
+         comment triggered an XML-comment double-hyphen parse error), and
+         cc-21 (this file, scrubbed of dashes).
+         Real-world source-format reference:
          github.com/swongcopado/swenuc2repo/blob/master/callCenters/OpenCTI.callCenter
-
-         The <displayName> and <internalNameLabel>/<displayNameLabel>
-         fields at the CallCenter level mirror the "Internal Name" /
-         "Display Name" labels shown in Setup UI.
-
-         reqRelayState / reqIdentityUrl are IdP-initiated SSO fields
-         VoxCanvas does not implement, but the Partner Telephony
-         validator still requires the items to be present (with
-         empty <value>) so they are kept in the payload.
-
-         reqTelephonyIntegrationCertificate receives the JWT public
-         key PEM so the admin does not have to paste it into the
-         Contact Center's Public Key field via Setup UI.
-
-         The filename contains the {{CC_DEVELOPER_NAME}} placeholder
-         because sf CLI source-format requires the filename to match
-         the InternalName — it is renamed at render time.
-    -->
+         Full rationale lives in tests/setup/metadataRenderer.test.js and
+         in the commit message for this template. -->
     <displayName>{{CC_MASTER_LABEL}}</displayName>
     <displayNameLabel>Display Name</displayNameLabel>
     <internalNameLabel>Internal Name</internalNameLabel>
