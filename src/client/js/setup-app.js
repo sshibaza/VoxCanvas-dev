@@ -368,20 +368,16 @@ function renderStep() {
       // exists. Metadata API cannot deploy a Partner Telephony
       // CallCenter directly — the schema is locked to classic CTI
       // fields — so Setup UI Import is the only supported path.
+      // We intentionally do NOT deep-link to a Setup URL — the Contact
+      // Centers page path has shifted across Salesforce releases and a
+      // stale URL shows "Page Not Found". Describe the navigation
+      // steps instead; the Quick Find flow is stable across releases.
       function renderImportPanel(developerName, masterLabel) {
         const mount = document.getElementById('deploy-log');
-        const instanceUrl = state.instanceUrl || '';
-        // Setup UI Contact Centers list page — Import button is at the top.
-        const setupUrl = instanceUrl
-          ? `${instanceUrl.replace(/\/$/, '')}/lightning/setup/ContactCenters/home`
-          : '';
-        const openBtn = setupUrl
-          ? `<a href="${setupUrl}" target="_blank" class="inline-block bg-sf-blue/50 hover:bg-sf-blue/70 px-3 py-1.5 rounded text-sm font-semibold">Open Contact Centers page &#8599;</a>`
-          : `<div class="text-xs opacity-60">Setup → Service Cloud Voice → Contact Centers</div>`;
         const xmlHref = `/api/setup/cc/import-xml?developerName=${encodeURIComponent(developerName)}&masterLabel=${encodeURIComponent(masterLabel)}`;
         mount.insertAdjacentHTML('beforeend', `
           <div id="import-panel" class="mt-6 bg-white/5 border border-sf-blue/30 rounded p-4 text-sm">
-            <div class="font-semibold mb-2">Next: Import the Contact Center XML (3 clicks)</div>
+            <div class="font-semibold mb-2">Next: Import the Contact Center XML</div>
             <div class="opacity-70 text-xs leading-relaxed mb-3">
               <code>ConversationVendorInfo</code> のデプロイは完了しました。
               Partner Telephony 用 Contact Center は Metadata API デプロイ対象外のため、
@@ -394,18 +390,31 @@ function renderStep() {
                   Download ${developerName}.callCenter.xml &#8681;
                 </a>
               </li>
-              <li>${openBtn} → 画面右上の <b>[Import]</b> ボタン</li>
-              <li>ダウンロードした XML を選択 → <b>[Import]</b> → <b>[Save]</b></li>
+              <li>
+                Salesforce の <b>Setup</b> を開き、Quick Find に <code>Contact Centers</code> と入力 →
+                <b>Service Cloud Voice → Contact Centers</b> を選択
+              </li>
+              <li>画面上部の <b>[Import]</b> をクリック → 先ほどダウンロードした <code>${developerName}.callCenter.xml</code> を選択 → <b>[Import]</b></li>
+              <li>作成された Contact Center を開き、内容を確認して <b>[Save]</b></li>
+              <li>下の <b>Verify</b> ボタンでウィザードに通知</li>
             </ol>
             <div class="flex items-center gap-3">
               <button id="btn-verify-cc" class="bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-1.5 rounded text-sm font-semibold">Verify</button>
-              <div id="verify-status" class="text-xs opacity-70"></div>
+              <div id="verify-status" class="text-xs opacity-70">Import が完了したら Verify を押してください。</div>
             </div>
           </div>
         `);
 
         const statusEl = document.getElementById('verify-status');
         const verifyBtn = document.getElementById('btn-verify-cc');
+        // First check on mount is "silent" — if the CC already exists
+        // (admin re-running the wizard after a previous import), we
+        // light up Next; but if it doesn't (the common case — admin
+        // has not imported yet), we show a neutral "waiting" message
+        // rather than a red error. Subsequent Verify clicks show the
+        // red "not found" error because at that point the admin has
+        // claimed to have imported.
+        let firstCheck = true;
         async function verifyOnce() {
           statusEl.innerHTML = '<span class="opacity-70">Checking...</span>';
           try {
@@ -416,18 +425,25 @@ function renderStep() {
               document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
               verifyBtn.disabled = true;
               verifyBtn.classList.add('opacity-50', 'pointer-events-none');
+              firstCheck = false;
               return true;
             }
-            statusEl.innerHTML = '<span class="text-sf-error">&#10007; Not found yet. Complete the Import steps above, then click Verify.</span>';
+            if (firstCheck) {
+              statusEl.innerHTML = '<span class="opacity-70">Import が完了したら Verify を押してください。</span>';
+            } else {
+              statusEl.innerHTML = '<span class="text-sf-error">&#10007; まだ見つかりません。Setup UI で Import を完了してから再度 Verify してください。</span>';
+            }
+            firstCheck = false;
             return false;
           } catch (err) {
             statusEl.innerHTML = `<span class="text-sf-error">Verify failed: ${err.message}</span>`;
+            firstCheck = false;
             return false;
           }
         }
         verifyBtn.addEventListener('click', verifyOnce);
-        // Initial silent check — skips the Import step if the CC was
-        // already imported in a prior run.
+        // Initial silent check — skips the Import step entirely if
+        // the CC was already imported in a prior wizard run.
         verifyOnce();
       }
 
