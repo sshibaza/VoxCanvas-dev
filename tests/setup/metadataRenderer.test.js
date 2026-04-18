@@ -82,38 +82,50 @@ describe('renderMetadata', () => {
         `${flag} must be explicitly set to false so the ServiceCloudVoicePartner defaults don't enable it`);
     }
 
-    const cc = fs.readFileSync(callCenterFile, 'utf-8');
-    // CallCenter XML MUST be <callCenter> (lowercase c) — the sf CLI
-    // source-deploy-retrieve registry and the Metadata API type name is
-    // CallCenter but the XML root follows the sample at
-    // github.com/service-cloud-voice/examples-from-doc, which uses
-    // <callCenter>. Getting this wrong would surface as a silent
-    // deploy-nothing-and-no-error.
-    assert.match(cc, /<callCenter[ >]/);
-    // CRITICAL regression guard: CallCenter uses a legacy XML schema
-    // that does NOT use the http://soap.sforce.com/2006/04/metadata
-    // namespace. An xmlns attribute causes the Metadata API validator
-    // to reject <section> with "invalid at this location in type
-    // CallCenter". This test locks in the no-namespace fix shipped in
-    // wizard-cc-19 after a live deploy failure.
-    assert.ok(!cc.includes('xmlns='),
-      'CallCenter XML must NOT have an xmlns attribute (unlike most Metadata API types, the CallCenter schema is no-namespace; deploying with xmlns="http://soap.sforce.com/2006/04/metadata" makes the validator reject <section>)');
-    assert.match(cc, /<item sortOrder="0" name="reqInternalName"[^>]*>VoxCanvas_CC<\/item>/);
-    assert.match(cc, /<item sortOrder="1" name="reqDisplayName"[^>]*>VoxCanvas Contact Center<\/item>/);
+    const ccRaw = fs.readFileSync(callCenterFile, 'utf-8');
+    // Strip XML comments before structural checks — the template has
+    // an explanatory comment that *mentions* the wrong-format tags to
+    // warn future editors, and we don't want those mentions to trip
+    // the regression guards.
+    const cc = ccRaw.replace(/<!--[\s\S]*?-->/g, '');
+    // CRITICAL regression guards — every one of these lines below
+    // locks in a schema mistake we actually shipped and had to fix:
+    //
+    // wizard-cc-18: used <callCenter> lowercase + <section> attributes
+    //   → "Element {http://...}section invalid"
+    // wizard-cc-19: removed xmlns but kept <section> attributes
+    //   → "Element {}section invalid"
+    // wizard-cc-20: switched to the correct Metadata API format
+    //   <CallCenter> (capital C) + xmlns + <sections>/<items>
+    //   with <name>/<label>/<value> child elements.
+    assert.match(cc, /<CallCenter\s+xmlns="http:\/\/soap\.sforce\.com\/2006\/04\/metadata">/,
+      'Root element MUST be <CallCenter> (capital C) with standard metadata xmlns. Lowercase <callCenter> is the Setup-UI Import format, not the sf deploy format.');
+    assert.ok(!/<callCenter[\s>]/.test(cc),
+      'must NOT use lowercase <callCenter> — that is the Setup-UI Import XML format and is rejected by sf project deploy start');
+    assert.ok(!/<section\s/.test(cc),
+      'must NOT use singular <section> with attributes — Metadata API schema uses <sections> (plural) with <name>/<label>/<items> child elements');
+    assert.match(cc, /<sections>[\s\S]*<name>reqGeneralInfo<\/name>[\s\S]*<\/sections>/,
+      'reqGeneralInfo section must be a <sections> block with <name> child');
+    assert.match(cc, /<sections>[\s\S]*<name>reqHvcc<\/name>[\s\S]*<\/sections>/,
+      'reqHvcc section must be a <sections> block with <name> child');
+    assert.match(cc, /<items>[\s\S]*?<name>reqInternalName<\/name>[\s\S]*?<value>VoxCanvas_CC<\/value>[\s\S]*?<\/items>/,
+      'reqInternalName value must equal the developer name passed to the renderer');
+    assert.match(cc, /<items>[\s\S]*?<name>reqDisplayName<\/name>[\s\S]*?<value>VoxCanvas Contact Center<\/value>[\s\S]*?<\/items>/,
+      'reqDisplayName value must equal the master label');
     // reqVendorInfoApiName MUST equal the ConversationVendorInfo
-    // developerName (VoxCanvas) or the deploy will fail with an
+    // developerName (VoxCanvas) or the deploy fails with an
     // unresolved-reference validator error.
-    assert.match(cc, /<item sortOrder="2" name="reqVendorInfoApiName"[^>]*>VoxCanvas<\/item>/);
-    // JWT public key is injected directly into reqTelephonyIntegrationCertificate
-    // so the admin does not have to paste it manually via Setup UI.
+    assert.match(cc, /<items>[\s\S]*?<name>reqVendorInfoApiName<\/name>[\s\S]*?<value>VoxCanvas<\/value>[\s\S]*?<\/items>/,
+      'reqVendorInfoApiName must point at the deployed ConversationVendorInfo developerName (VoxCanvas)');
+    // JWT public key is injected into reqTelephonyIntegrationCertificate
+    // so the admin does not paste it manually via Setup UI.
     assert.match(cc, /-----BEGIN PUBLIC KEY-----/);
     assert.match(cc, /-----END PUBLIC KEY-----/);
-    // Required fields VoxCanvas does not use (SSO) must still be
-    // present (as empty items) so the validator does not reject the
-    // deploy for missing required req* items.
-    assert.match(cc, /name="reqRelayState"/);
-    assert.match(cc, /name="reqIdentityUrl"/);
-    assert.ok(!cc.includes('{{'), 'no unfilled {{PLACEHOLDER}} markers should remain in rendered CallCenter XML');
+    assert.match(cc, /<name>reqTelephonyIntegrationCertificate<\/name>/);
+    assert.match(cc, /<name>reqRelayState<\/name>/);
+    assert.match(cc, /<name>reqIdentityUrl<\/name>/);
+    assert.ok(!cc.includes('{{'),
+      'no unfilled {{PLACEHOLDER}} markers should remain in rendered CallCenter XML');
 
     result.cleanup();
     assert.ok(!fs.existsSync(result.tmpDir));

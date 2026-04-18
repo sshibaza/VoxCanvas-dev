@@ -1,39 +1,100 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<callCenter>
+<CallCenter xmlns="http://soap.sforce.com/2006/04/metadata">
     <!--
-         CRITICAL: No xmlns on <callCenter>. Unlike most Metadata API
-         types, CallCenter uses a legacy XML schema that does NOT
-         use the http://soap.sforce.com/2006/04/metadata namespace.
-         Adding xmlns makes the Metadata API validator reject
-         <section> with "invalid at this location in type CallCenter"
-         because <section> lives in the no-namespace schema, not the
-         standard metadata namespace.
+         CRITICAL schema notes (this file has been wrong TWICE already —
+         do not "simplify" without reading this comment):
 
-         Template based on the official Salesforce sample at
-         https://github.com/service-cloud-voice/examples-from-doc/blob/main/callcenter/partner_telephony_cc_import.xml
-         (verified: sample has NO xmlns attribute).
+         1. Root element is <CallCenter> (CAPITAL C), NOT <callCenter>.
+            sf CLI's source-deploy-retrieve registry expects the
+            Metadata-API type name casing for the root element. The
+            lowercase <callCenter> variant is a separate XML format
+            used only by Salesforce Setup UI's "Import" button and is
+            NOT accepted by `sf project deploy start`.
 
-         The sample has sections labeled `req*` (required). We include all
-         req* items so the Metadata API validator doesn't reject the
-         deploy for missing fields, filling in empty values for fields
-         VoxCanvas does not use (reqRelayState/reqIdentityUrl — those are
-         for IdP-initiated SSO, which this connector does not implement).
+         2. xmlns IS required. The previous "fix" that removed it was
+            wrong — Setup-UI import XML is no-namespace, but sf CLI
+            source-format CallCenter IS in the standard metadata
+            namespace. Without xmlns, the validator rejects every
+            child element with "Element {}section invalid".
 
-         The filename itself contains the {{CC_DEVELOPER_NAME}}
-         placeholder because sf CLI source-format requires
-         callCenters/<InternalName>.callCenter-meta.xml — the file is
-         renamed at render time.
+         3. Structure is <sections>/<items> (PLURAL) with children
+            <name>/<label>/<value>. Attribute-style <section sortOrder=...>
+            is the Setup-UI import format. The Metadata API schema
+            for CallCenter uses named child elements. Getting this
+            wrong produces "Element section invalid at this location
+            in type CallCenter" regardless of namespace.
+
+         Authoritative reference: retrieve any real CallCenter from
+         an org via `sf project retrieve start --metadata CallCenter:X`.
+         Real-world Metadata-API source-format examples on GitHub:
+         github.com/swongcopado/swenuc2repo/blob/master/callCenters/OpenCTI.callCenter
+
+         The <displayName> and <internalNameLabel>/<displayNameLabel>
+         fields at the CallCenter level mirror the "Internal Name" /
+         "Display Name" labels shown in Setup UI.
+
+         reqRelayState / reqIdentityUrl are IdP-initiated SSO fields
+         VoxCanvas does not implement, but the Partner Telephony
+         validator still requires the items to be present (with
+         empty <value>) so they are kept in the payload.
+
+         reqTelephonyIntegrationCertificate receives the JWT public
+         key PEM so the admin does not have to paste it into the
+         Contact Center's Public Key field via Setup UI.
+
+         The filename contains the {{CC_DEVELOPER_NAME}} placeholder
+         because sf CLI source-format requires the filename to match
+         the InternalName — it is renamed at render time.
     -->
-    <section sortOrder="0" name="reqGeneralInfo" label="General Information">
-        <item sortOrder="0" name="reqInternalName" label="Internal Name">{{CC_DEVELOPER_NAME}}</item>
-        <item sortOrder="1" name="reqDisplayName" label="Display Name">{{CC_MASTER_LABEL}}</item>
-        <item sortOrder="2" name="reqVendorInfoApiName" label="Conversation Vendor Info Developer Name">VoxCanvas</item>
-    </section>
-    <section sortOrder="1" name="reqHvcc" label="SCV Settings">
-        <item sortOrder="0" name="reqRelayState" label="Relay State"></item>
-        <item sortOrder="1" name="reqIdentityUrl" label="Identity URL"></item>
-        <item sortOrder="2" name="reqTelephonyIntegrationCertificate" label="Telephony Integration Certificate">{{JWT_PEM}}</item>
-        <item sortOrder="3" name="reqLongDistPrefix" label="Long Distance Prefix">+1</item>
-        <item sortOrder="4" name="reqUniversalCallRecordingAccess" label="Universal Call Recording Access">false</item>
-    </section>
-</callCenter>
+    <displayName>{{CC_MASTER_LABEL}}</displayName>
+    <displayNameLabel>Display Name</displayNameLabel>
+    <internalNameLabel>Internal Name</internalNameLabel>
+    <sections>
+        <items>
+            <label>Internal Name</label>
+            <name>reqInternalName</name>
+            <value>{{CC_DEVELOPER_NAME}}</value>
+        </items>
+        <items>
+            <label>Display Name</label>
+            <name>reqDisplayName</name>
+            <value>{{CC_MASTER_LABEL}}</value>
+        </items>
+        <items>
+            <label>Conversation Vendor Info Developer Name</label>
+            <name>reqVendorInfoApiName</name>
+            <value>VoxCanvas</value>
+        </items>
+        <label>General Information</label>
+        <name>reqGeneralInfo</name>
+    </sections>
+    <sections>
+        <items>
+            <label>Relay State</label>
+            <name>reqRelayState</name>
+            <value></value>
+        </items>
+        <items>
+            <label>Identity URL</label>
+            <name>reqIdentityUrl</name>
+            <value></value>
+        </items>
+        <items>
+            <label>Telephony Integration Certificate</label>
+            <name>reqTelephonyIntegrationCertificate</name>
+            <value>{{JWT_PEM}}</value>
+        </items>
+        <items>
+            <label>Long Distance Prefix</label>
+            <name>reqLongDistPrefix</name>
+            <value>+1</value>
+        </items>
+        <items>
+            <label>Universal Call Recording Access</label>
+            <name>reqUniversalCallRecordingAccess</name>
+            <value>false</value>
+        </items>
+        <label>SCV Settings</label>
+        <name>reqHvcc</name>
+    </sections>
+</CallCenter>
