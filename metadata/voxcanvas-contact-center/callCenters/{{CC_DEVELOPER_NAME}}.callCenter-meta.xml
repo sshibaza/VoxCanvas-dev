@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<callCenter xmlns="http://soap.sforce.com/2006/04/metadata">
+    <!--
+         Template based on the official Salesforce sample at
+         https://github.com/service-cloud-voice/examples-from-doc/blob/main/callcenter/partner_telephony_cc_import.xml
+         The sample has sections labeled `req*` (required). We include all
+         req* items so the Metadata API validator doesn't reject the
+         deploy for missing fields, filling in empty values for fields
+         VoxCanvas does not use (reqRelayState/reqIdentityUrl — those are
+         for IdP-initiated SSO, which this connector does not implement).
+
+         The filename itself contains the {{CC_DEVELOPER_NAME}}
+         placeholder because sf CLI source-format requires
+         callCenters/<InternalName>.callCenter-meta.xml — the file is
+         renamed at render time.
+    -->
+    <section sortOrder="0" name="reqGeneralInfo" label="General Information">
+        <item sortOrder="0" name="reqInternalName" label="Internal Name">{{CC_DEVELOPER_NAME}}</item>
+        <item sortOrder="1" name="reqDisplayName" label="Display Name">{{CC_MASTER_LABEL}}</item>
+        <item sortOrder="2" name="reqVendorInfoApiName" label="Conversation Vendor Info Developer Name">VoxCanvas</item>
+    </section>
+    <section sortOrder="1" name="reqHvcc" label="SCV Settings">
+        <item sortOrder="0" name="reqRelayState" label="Relay State"></item>
+        <item sortOrder="1" name="reqIdentityUrl" label="Identity URL"></item>
+        <item sortOrder="2" name="reqTelephonyIntegrationCertificate" label="Telephony Integration Certificate">{{JWT_PEM}}</item>
+        <item sortOrder="3" name="reqLongDistPrefix" label="Long Distance Prefix">+1</item>
+        <item sortOrder="4" name="reqUniversalCallRecordingAccess" label="Universal Call Recording Access">false</item>
+    </section>
+</callCenter>
