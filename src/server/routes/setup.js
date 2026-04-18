@@ -294,7 +294,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-26] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-27] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -447,6 +447,70 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
+  // Lists every ConversationVendorInfo the org exposes (ours + any
+  // other managed-package vendors). Used by the fallback Import panel
+  // so the reqVendorInfoApiName in the generated XML can be pinned to
+  // the exact vendor the admin selects in Setup UI's Telephony
+  // Provider dropdown.
+  router.get('/setup/cc/vendors', (req, res) => {
+    if (!routerState.selectedOrgAlias) {
+      return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
+    }
+    try {
+      const soql = 'SELECT DeveloperName, MasterLabel, NamespacePrefix FROM ConversationVendorInfo ORDER BY MasterLabel';
+      const out = runSfJson(['data', 'query', '-q', soql, '--target-org', routerState.selectedOrgAlias, '--json']);
+      const records = out?.result?.records || [];
+      const vendors = records.map((r) => ({
+        developerName: r.DeveloperName,
+        masterLabel: r.MasterLabel,
+        namespacePrefix: r.NamespacePrefix || null,
+        apiName: r.NamespacePrefix ? `${r.NamespacePrefix}__${r.DeveloperName}` : r.DeveloperName,
+      }));
+      res.json({ vendors });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_QUERY_FAILED', message: err.message });
+    }
+  });
+
+  // Returns the Setup-UI Import-format CallCenter XML as a downloadable
+  // file, pre-populated with developerName / masterLabel / vendor ref /
+  // JWT public-key PEM. Used as the fallback when MDAPI CallCenter
+  // deploy fails (the Setup UI "Import" button is the officially
+  // documented path for Partner Telephony Contact Center creation).
+  router.get('/setup/cc/import-xml', async (req, res) => {
+    const developerName = String(req.query.developerName || '');
+    const masterLabel = String(req.query.masterLabel || '');
+    const vendorDeveloperName = String(req.query.vendorDeveloperName || 'VoxCanvas');
+    if (!/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(developerName)) {
+      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must start with a letter and contain only A-Z / a-z / 0-9 (no underscore, max 40 chars)' });
+    }
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(vendorDeveloperName)) {
+      return res.status(400).json({ error: true, code: 'INVALID_VENDOR_NAME', message: 'vendorDeveloperName must start with a letter, allow only A-Z / a-z / 0-9 / _ (max 80 chars)' });
+    }
+    if (!masterLabel || masterLabel.length > 120) {
+      return res.status(400).json({ error: true, code: 'INVALID_LABEL', message: 'masterLabel required, max 120 chars' });
+    }
+    const jwtPemPath = 'certs/jwt.pem';
+    if (!fs.existsSync(jwtPemPath)) {
+      return res.status(400).json({ error: true, code: 'NO_CERT', message: 'run certificate step first' });
+    }
+    try {
+      const { renderCallCenterImportXml } = await import('../setup/ccImportXml.js');
+      const pem = fs.readFileSync(jwtPemPath, 'utf-8');
+      const xml = renderCallCenterImportXml({
+        developerName,
+        masterLabel,
+        vendorDeveloperName,
+        jwtPem: pem,
+      });
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${developerName}.callCenter.xml"`);
+      res.send(xml);
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'RENDER_FAILED', message: err.message });
+    }
+  });
+
   router.post('/setup/cc/deploy', async (req, res) => {
     const { serviceEndpoint, developerName, masterLabel } = req.body || {};
     if (!serviceEndpoint || !developerName || !masterLabel) {
@@ -551,8 +615,32 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       const phase2 = await runDeploy('phase2', [
         '--metadata', `CallCenter:${developerName}`,
       ]);
+      // Phase 2 soft-fail: if CallCenter MDAPI deploy is rejected
+      // (which happens in many orgs where Partner Telephony CCs must
+      // go through the Setup UI Import path regardless of
+      // reqCallCenterType=SCVBYOT), we do NOT treat it as a wizard
+      // failure. Phase 1 (vendor + Apex) has already succeeded, which
+      // is the pre-requisite for the Setup UI Import flow. We signal
+      // the client that the automatic path did not work so the UI
+      // renders the Import XML fallback panel (download XML, Setup
+      // UI → Contact Centers → Import, Verify by SOQL).
       if (phase2.exitCode !== 0) {
-        send('done', { success: false, runId, exitCode: phase2.exitCode, message: 'Phase 2 deploy failed (CallCenter). See log.' });
+        logger.log(runId, {
+          level: 'warn',
+          step: 'deploy',
+          action: 'done',
+          message: 'Phase 2 (MDAPI CallCenter) was not accepted by this org. Falling back to Setup UI Import — the wizard will now guide you through downloading an XML file and importing it.',
+        });
+        send('done', {
+          success: true,
+          runId,
+          exitCode: phase2.exitCode,
+          phase1: 'ok',
+          phase2: 'needs-manual-import',
+          vendorDeveloperName: 'VoxCanvas',
+          callCenterApiName: developerName,
+          masterLabel,
+        });
         return;
       }
       logger.log(runId, { level: 'info', step: 'deploy', action: 'done', message: `Deploy succeeded: ConversationVendorInfo VoxCanvas + CallCenter ${developerName}` });
@@ -561,6 +649,8 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         success: true,
         runId,
         exitCode: 0,
+        phase1: 'ok',
+        phase2: 'ok',
         vendorDeveloperName: 'VoxCanvas',
         callCenterApiName: developerName,
         masterLabel,
