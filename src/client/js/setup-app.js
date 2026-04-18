@@ -436,7 +436,7 @@ function renderStep() {
               const ns = v.namespacePrefix ? ` [${v.namespacePrefix}]` : '';
               return `<option value="${v.apiName}">${v.masterLabel}${ns} — ${v.apiName}</option>`;
             }).join('');
-            const ours = vendors.findIndex((v) => v.apiName === 'VoxCanvas');
+            const ours = vendors.findIndex((v) => v.apiName === 'c__VoxCanvas');
             vendorSelect.selectedIndex = ours >= 0 ? ours : 0;
             updateDownloadHref();
           } catch (err) {

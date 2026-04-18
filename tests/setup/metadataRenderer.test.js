@@ -88,10 +88,15 @@ describe('renderMetadata', () => {
     assert.match(cc, /<customSettings>[^<]*"reqCallCenterType":"SCVBYOT"[^<]*<\/customSettings>/,
       'CallCenter customSettings MUST include "reqCallCenterType":"SCVBYOT" — without it the validator demands classic CTI fields');
 
-    // reqVendorInfoApiName must equal the ConversationVendorInfo
-    // developerName (VoxCanvas) — mismatch produces the Japanese
-    // "ベンダー名が一致" error at Setup UI Import time.
-    assert.match(cc, /<items>[\s\S]*?<name>reqVendorInfoApiName<\/name>[\s\S]*?<value>VoxCanvas<\/value>[\s\S]*?<\/items>/);
+    // reqVendorInfoApiName must carry the Full API Name — `c__` prefix
+    // for an unmanaged/custom vendor (matches the Amazon Connect sample
+    // "c__AMAZON_CONNECT" in the official examples-from-doc repo).
+    // Missing the c__ prefix produces the Japanese "ベンダー名が一致"
+    // error at Setup UI Import time (and probably also breaks the
+    // MDAPI CallCenter deploy's reference resolution).
+    assert.match(cc, /<items>[\s\S]*?<name>reqVendorInfoApiName<\/name>[\s\S]*?<value>c__VoxCanvas<\/value>[\s\S]*?<\/items>/);
+    assert.ok(!/<value>VoxCanvas<\/value>/.test(cc.replace(/c__VoxCanvas/g, '')),
+      'reqVendorInfoApiName must be c__VoxCanvas (Full API Name), not bare VoxCanvas');
 
     // reqInternalName / reqDisplayName values substituted.
     assert.match(cc, /<items>[\s\S]*?<name>reqInternalName<\/name>[\s\S]*?<value>VoxCanvasDemoCenter<\/value>[\s\S]*?<\/items>/);

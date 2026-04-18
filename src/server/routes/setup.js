@@ -294,7 +294,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-27] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-28] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -464,7 +464,16 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         developerName: r.DeveloperName,
         masterLabel: r.MasterLabel,
         namespacePrefix: r.NamespacePrefix || null,
-        apiName: r.NamespacePrefix ? `${r.NamespacePrefix}__${r.DeveloperName}` : r.DeveloperName,
+        // "Full API Name" of a ConversationVendorInfo, which is what
+        // reqVendorInfoApiName MUST be set to in the Import XML.
+        // Confirmed against the official Amazon Connect sample at
+        // github.com/service-cloud-voice/examples-from-doc/blob/main/callcenter/amazon_connect_partner_telephony_cc_import.xml
+        // where it is hard-coded as `c__AMAZON_CONNECT` with the note
+        // "Do not change this value". The `c__` prefix is Salesforce's
+        // default/custom namespace used when the component is not
+        // inside a managed package. Unmanaged deploys still need it.
+        // Managed-package vendors use `<namespace>__<DeveloperName>`.
+        apiName: `${r.NamespacePrefix || 'c'}__${r.DeveloperName}`,
       }));
       res.json({ vendors });
     } catch (err) {
@@ -480,7 +489,11 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
   router.get('/setup/cc/import-xml', async (req, res) => {
     const developerName = String(req.query.developerName || '');
     const masterLabel = String(req.query.masterLabel || '');
-    const vendorDeveloperName = String(req.query.vendorDeveloperName || 'VoxCanvas');
+    // Default includes the `c__` custom-namespace prefix — this is
+    // the "Full API Name" format reqVendorInfoApiName must carry. See
+    // the comment in /setup/cc/vendors and the Amazon Connect sample
+    // for the authoritative reference.
+    const vendorDeveloperName = String(req.query.vendorDeveloperName || 'c__VoxCanvas');
     if (!/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(developerName)) {
       return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must start with a letter and contain only A-Z / a-z / 0-9 (no underscore, max 40 chars)' });
     }
