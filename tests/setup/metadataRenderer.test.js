@@ -126,6 +126,19 @@ describe('renderMetadata', () => {
     assert.match(cc, /<name>reqIdentityUrl<\/name>/);
     assert.ok(!cc.includes('{{'),
       'no unfilled {{PLACEHOLDER}} markers should remain in rendered CallCenter XML');
+    // XML comment double-hyphen regression guard (wizard-cc-20 → cc-21).
+    // The XML spec forbids "--" anywhere inside <!-- ... --> except at
+    // the closing "-->". A previous template had "sf project retrieve
+    // start --metadata CallCenter:X" inside a comment, which the
+    // Salesforce MDAPI parser rejected with
+    //   "Error parsing file: The string \"--\" is not permitted within comments."
+    // Check the RAW file (including comments, which the block above
+    // had stripped).
+    for (const m of ccRaw.matchAll(/<!--([\s\S]*?)-->/g)) {
+      const body = m[1];
+      assert.ok(!body.includes('--'),
+        `CallCenter XML comment contains "--" which XML forbids: ${body.slice(0, 120)}…`);
+    }
 
     result.cleanup();
     assert.ok(!fs.existsSync(result.tmpDir));
