@@ -43,6 +43,19 @@ describe('renderCallCenterImportXml', () => {
     assert.ok(!xml.includes('<Tables>'), 'must escape < in user input so the XML stays well-formed');
   });
 
+  test('namespaced vendor (e.g. managed package) flows through verbatim', () => {
+    // If the admin selects a vendor with a namespace prefix from the
+    // /setup/cc/vendors list, the API name we emit is
+    // `ns__DeveloperName` — the same value Setup UI Import expects.
+    const xml = renderCallCenterImportXml({
+      developerName: 'CC1',
+      masterLabel: 'L',
+      vendorDeveloperName: 'byoscv__VoxCanvas_Partner_Telephony',
+      jwtPem: FIXTURE_PEM,
+    });
+    assert.match(xml, /<item [^>]*name="reqVendorInfoApiName"[^>]*>byoscv__VoxCanvas_Partner_Telephony<\/item>/);
+  });
+
   test('throws on missing required inputs', () => {
     const base = {
       developerName: 'CC1',

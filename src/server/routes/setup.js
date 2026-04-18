@@ -294,7 +294,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-24] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-25] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -447,6 +447,40 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     }
   });
 
+  // Returns the list of ConversationVendorInfo records the org can see,
+  // so the wizard can let the admin pick the exact vendor that matches
+  // what Setup UI's Import dropdown will offer.
+  //
+  // Why this exists: "XML ファイル内のベンダー名は、選択したベンダーの
+  // 名前に一致する必要があります。" is surfaced by the Setup UI Import
+  // when reqVendorInfoApiName in the XML does not exactly match the
+  // DeveloperName of the vendor the admin picked from the dropdown.
+  // Hardcoding "VoxCanvas" fails if the org has additional vendors
+  // from managed packages (namespace__Name format) or prior deploys.
+  router.get('/setup/cc/vendors', (req, res) => {
+    if (!routerState.selectedOrgAlias) {
+      return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
+    }
+    try {
+      const soql = 'SELECT DeveloperName, MasterLabel, NamespacePrefix FROM ConversationVendorInfo ORDER BY MasterLabel';
+      const out = runSfJson(['data', 'query', '-q', soql, '--target-org', routerState.selectedOrgAlias, '--json']);
+      const records = out?.result?.records || [];
+      const vendors = records.map((r) => ({
+        developerName: r.DeveloperName,
+        masterLabel: r.MasterLabel,
+        namespacePrefix: r.NamespacePrefix || null,
+        // The value the XML's reqVendorInfoApiName must carry. For an
+        // unmanaged deploy this equals DeveloperName. For a vendor
+        // that came from a managed package with namespace `ns`, the
+        // fully qualified API name is `ns__DeveloperName`.
+        apiName: r.NamespacePrefix ? `${r.NamespacePrefix}__${r.DeveloperName}` : r.DeveloperName,
+      }));
+      res.json({ vendors });
+    } catch (err) {
+      res.status(500).json({ error: true, code: 'SF_QUERY_FAILED', message: err.message });
+    }
+  });
+
   // Returns the Setup-UI Import-format CallCenter XML as a downloadable
   // file, pre-populated with developerName / masterLabel / vendor ref /
   // JWT public-key PEM. The admin then imports it via Setup → Service
@@ -456,6 +490,14 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
   router.get('/setup/cc/import-xml', async (req, res) => {
     const developerName = String(req.query.developerName || '');
     const masterLabel = String(req.query.masterLabel || '');
+    // vendorDeveloperName is what goes into <reqVendorInfoApiName>.
+    // MUST match the DeveloperName of the vendor the admin selects in
+    // Setup UI Import, otherwise Salesforce rejects with "XML ファイル
+    // 内のベンダー名は、選択したベンダーの名前に一致する必要があります。"
+    // Default is our own deployed vendor ("VoxCanvas"). The UI now
+    // exposes /setup/cc/vendors so the admin can override if their org
+    // has the vendor under a namespace prefix or a different name.
+    const vendorDeveloperName = String(req.query.vendorDeveloperName || 'VoxCanvas');
     // Salesforce CallCenter InternalName (reqInternalName) rules:
     // alphanumeric only (NO underscore), must start with a letter,
     // max 40 chars, unique per org. Violating this surfaces at Import
@@ -463,6 +505,11 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     // 始まり、組織内の各コールセンターでユニークである必要があります。"
     if (!/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(developerName)) {
       return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must start with a letter and contain only A-Z / a-z / 0-9 (no underscore, max 40 chars)' });
+    }
+    // vendor DeveloperName allows underscore (required for
+    // `namespace__Name` managed-package vendors) but no other symbols.
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(vendorDeveloperName)) {
+      return res.status(400).json({ error: true, code: 'INVALID_VENDOR_NAME', message: 'vendorDeveloperName must start with a letter, allow only A-Z / a-z / 0-9 / _ (max 80 chars)' });
     }
     // masterLabel is rendered into XML text nodes; escape, but also cap
     // length to avoid pathological inputs.
@@ -479,7 +526,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       const xml = renderCallCenterImportXml({
         developerName,
         masterLabel,
-        vendorDeveloperName: 'VoxCanvas',
+        vendorDeveloperName,
         jwtPem: pem,
       });
       res.setHeader('Content-Type', 'application/xml; charset=utf-8');
