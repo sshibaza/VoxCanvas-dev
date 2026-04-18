@@ -90,6 +90,14 @@ describe('renderMetadata', () => {
     // <callCenter>. Getting this wrong would surface as a silent
     // deploy-nothing-and-no-error.
     assert.match(cc, /<callCenter[ >]/);
+    // CRITICAL regression guard: CallCenter uses a legacy XML schema
+    // that does NOT use the http://soap.sforce.com/2006/04/metadata
+    // namespace. An xmlns attribute causes the Metadata API validator
+    // to reject <section> with "invalid at this location in type
+    // CallCenter". This test locks in the no-namespace fix shipped in
+    // wizard-cc-19 after a live deploy failure.
+    assert.ok(!cc.includes('xmlns='),
+      'CallCenter XML must NOT have an xmlns attribute (unlike most Metadata API types, the CallCenter schema is no-namespace; deploying with xmlns="http://soap.sforce.com/2006/04/metadata" makes the validator reject <section>)');
     assert.match(cc, /<item sortOrder="0" name="reqInternalName"[^>]*>VoxCanvas_CC<\/item>/);
     assert.match(cc, /<item sortOrder="1" name="reqDisplayName"[^>]*>VoxCanvas Contact Center<\/item>/);
     // reqVendorInfoApiName MUST equal the ConversationVendorInfo
