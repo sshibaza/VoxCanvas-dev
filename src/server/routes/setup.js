@@ -53,6 +53,25 @@ function sanitizeEnvValue(value, field) {
   return str;
 }
 
+// sf CLI writes some non-fatal notices to stderr: the most common is
+// "Warning: @salesforce/cli update available from X to Y" on every
+// invocation, which had been showing up in the wizard log as a scary
+// red ERROR line even though the deploy itself succeeded. Classify
+// such lines as "warn" so the UI can style them neutrally.
+//
+// Keep the pattern list narrow — anything unrecognised on stderr
+// should still surface as a real error.
+export function classifySfStderr(line) {
+  if (/Warning:\s*@salesforce\/cli\s+update\s+available/i.test(line)) return 'warn';
+  if (/^\s*[›>]?\s*Warning:\s/i.test(line)) return 'warn';
+  return 'error';
+}
+
+function sfLogLevel(stream, line) {
+  if (stream === 'stderr') return classifySfStderr(line);
+  return 'info';
+}
+
 export function createSetupRouter(scrt2Client) {
   const router = Router();
   router.use('/setup', localhostOnly);
@@ -275,7 +294,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         // server-side logs — the client will see what sf actually printed.
         const snippet = cleaned.slice(0, 200).replace(/\s+/g, ' ').trim();
         const rawSnippet = stdout.slice(0, 200).replace(/\s+/g, ' ').trim();
-        const e = new Error(`[VoxCanvas wizard-cc-23] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
+        const e = new Error(`[VoxCanvas wizard-cc-24] sf CLI returned unparseable output. Cleaned head: "${snippet}". Raw head: "${rawSnippet}". Parse error: ${parseErr.message}`);
         e.code = 'SF_JSON_PARSE_FAILED';
         throw e;
       }
@@ -396,7 +415,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
       const { exitCode } = await runCommand({
         command: 'sf',
         args: ['org', 'login', 'web', '--alias', alias],
-        onLine: (line, stream) => logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'org-login', action: 'sf-exec', message: line }),
+        onLine: (line, stream) => logger.log(runId, { level: sfLogLevel(stream, line), step: 'org-login', action: 'sf-exec', message: line }),
       });
       send('done', { success: exitCode === 0, runId, exitCode });
     } catch (err) {
@@ -437,8 +456,13 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
   router.get('/setup/cc/import-xml', async (req, res) => {
     const developerName = String(req.query.developerName || '');
     const masterLabel = String(req.query.masterLabel || '');
-    if (!/^[A-Za-z0-9_]+$/.test(developerName)) {
-      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must be alphanumeric + _' });
+    // Salesforce CallCenter InternalName (reqInternalName) rules:
+    // alphanumeric only (NO underscore), must start with a letter,
+    // max 40 chars, unique per org. Violating this surfaces at Import
+    // time as "この値は、英数字 40 文字に制限されており、先頭は英字で
+    // 始まり、組織内の各コールセンターでユニークである必要があります。"
+    if (!/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(developerName)) {
+      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must start with a letter and contain only A-Z / a-z / 0-9 (no underscore, max 40 chars)' });
     }
     // masterLabel is rendered into XML text nodes; escape, but also cap
     // length to avoid pathological inputs.
@@ -474,8 +498,10 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
     if (!/^https:\/\/[A-Za-z0-9.\-/_:]+$/.test(serviceEndpoint)) {
       return res.status(400).json({ error: true, code: 'INVALID_ENDPOINT', message: 'serviceEndpoint must be https URL' });
     }
-    if (!/^[A-Za-z0-9_]+$/.test(developerName)) {
-      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must be alphanumeric + _' });
+    // CallCenter InternalName: letter-first, alphanumeric, max 40 —
+    // same rule as /setup/cc/import-xml. See that route for context.
+    if (!/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(developerName)) {
+      return res.status(400).json({ error: true, code: 'INVALID_NAME', message: 'developerName must start with a letter and contain only A-Z / a-z / 0-9 (no underscore, max 40 chars)' });
     }
     if (!routerState.selectedOrgAlias) {
       return res.status(400).json({ error: true, code: 'NO_ORG_SELECTED', message: 'select an org first' });
@@ -530,7 +556,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
         ],
         cwd: rendered.tmpDir,
         onLine: (line, stream) => {
-          logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'deploy', action: 'sf-exec', message: line });
+          logger.log(runId, { level: sfLogLevel(stream, line), step: 'deploy', action: 'sf-exec', message: line });
           const hint = matchHint(line);
           if (hint) logger.log(runId, { level: 'hint', step: 'deploy', action: 'hint', message: hint });
         },
@@ -618,7 +644,7 @@ CALL_CENTER_PHONE=${safe.callCenterPhone}
           command: 'sf',
           args,
           onLine: (line, stream) => {
-            logger.log(runId, { level: stream === 'stderr' ? 'error' : 'info', step: 'permset', action: 'sf-exec', message: line });
+            logger.log(runId, { level: sfLogLevel(stream, line), step: 'permset', action: 'sf-exec', message: line });
             const hint = matchHint(line);
             if (hint) logger.log(runId, { level: 'hint', step: 'permset', action: 'hint', message: hint });
           },

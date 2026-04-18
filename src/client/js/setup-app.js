@@ -227,12 +227,12 @@ function renderStep() {
             <div id="tunnel-status" class="text-xs opacity-60 mt-1"></div>
           </div>
           <div>
-            <label class="text-xs opacity-60 block mb-1">CC Developer Name</label>
-            <input id="cc-dev-name" value="VoxCanvas_CC" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
+            <label class="text-xs opacity-60 block mb-1">CC Internal Name <span class="opacity-50">(英字始まりの英数字のみ、40 文字以下、記号・スペース不可)</span></label>
+            <input id="cc-dev-name" value="VoxCanvasDemoCenter" pattern="[A-Za-z][A-Za-z0-9]{0,39}" maxlength="40" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-mono" />
           </div>
           <div>
-            <label class="text-xs opacity-60 block mb-1">CC Master Label</label>
-            <input id="cc-label" value="VoxCanvas Contact Center" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm" />
+            <label class="text-xs opacity-60 block mb-1">CC Display Name</label>
+            <input id="cc-label" value="VoxCanvas Demo Center" maxlength="80" class="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-sm" />
           </div>
         </div>
 
