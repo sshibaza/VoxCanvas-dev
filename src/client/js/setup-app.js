@@ -195,9 +195,9 @@ function renderStep() {
       container.innerHTML = `
         <h2 class="text-lg font-bold mb-4">Contact Center Configuration</h2>
         <div class="text-sm opacity-60 mb-4 leading-relaxed">
-          ウィザードが <code>ConversationVendorInfo</code>(vendor)と <code>CallCenter</code> を
-          Metadata API で 1 回のデプロイで作成します。JWT 公開鍵(<code>jwt.pem</code>)も
-          CallCenter レコードに自動登録されます。
+          ウィザードが <code>ConversationVendorInfo</code> と Apex stub を自動デプロイし、
+          Contact Center 用の Import XML(JWT 公開鍵埋め込み済)を生成します。
+          生成した XML を Salesforce の Setup UI から 1 クリックで Import してください。
         </div>
 
         <div class="bg-white/5 border border-white/10 rounded p-3 mb-4 text-sm">
@@ -362,6 +362,75 @@ function renderStep() {
       // Default: Local mode
       enterLocalMode();
 
+      // After the vendor + Apex deploy succeeds, render a panel that
+      // lets the admin download the pre-populated Contact Center XML
+      // and Import it in Salesforce Setup UI, then verify the record
+      // exists. Metadata API cannot deploy a Partner Telephony
+      // CallCenter directly — the schema is locked to classic CTI
+      // fields — so Setup UI Import is the only supported path.
+      function renderImportPanel(developerName, masterLabel) {
+        const mount = document.getElementById('deploy-log');
+        const instanceUrl = state.instanceUrl || '';
+        // Setup UI Contact Centers list page — Import button is at the top.
+        const setupUrl = instanceUrl
+          ? `${instanceUrl.replace(/\/$/, '')}/lightning/setup/ContactCenters/home`
+          : '';
+        const openBtn = setupUrl
+          ? `<a href="${setupUrl}" target="_blank" class="inline-block bg-sf-blue/50 hover:bg-sf-blue/70 px-3 py-1.5 rounded text-sm font-semibold">Open Contact Centers page &#8599;</a>`
+          : `<div class="text-xs opacity-60">Setup → Service Cloud Voice → Contact Centers</div>`;
+        const xmlHref = `/api/setup/cc/import-xml?developerName=${encodeURIComponent(developerName)}&masterLabel=${encodeURIComponent(masterLabel)}`;
+        mount.insertAdjacentHTML('beforeend', `
+          <div id="import-panel" class="mt-6 bg-white/5 border border-sf-blue/30 rounded p-4 text-sm">
+            <div class="font-semibold mb-2">Next: Import the Contact Center XML (3 clicks)</div>
+            <div class="opacity-70 text-xs leading-relaxed mb-3">
+              <code>ConversationVendorInfo</code> のデプロイは完了しました。
+              Partner Telephony 用 Contact Center は Metadata API デプロイ対象外のため、
+              Salesforce の Setup UI から Import してください。JWT 公開鍵 (<code>jwt.pem</code>) は
+              XML に埋め込み済みです。
+            </div>
+            <ol class="list-decimal ml-5 space-y-2 text-xs mb-4">
+              <li>
+                <a href="${xmlHref}" download="${developerName}.callCenter.xml" class="inline-block bg-sf-success/30 hover:bg-sf-success/50 px-3 py-1.5 rounded text-sm font-semibold">
+                  Download ${developerName}.callCenter.xml &#8681;
+                </a>
+              </li>
+              <li>${openBtn} → 画面右上の <b>[Import]</b> ボタン</li>
+              <li>ダウンロードした XML を選択 → <b>[Import]</b> → <b>[Save]</b></li>
+            </ol>
+            <div class="flex items-center gap-3">
+              <button id="btn-verify-cc" class="bg-sf-blue/50 hover:bg-sf-blue/70 px-4 py-1.5 rounded text-sm font-semibold">Verify</button>
+              <div id="verify-status" class="text-xs opacity-70"></div>
+            </div>
+          </div>
+        `);
+
+        const statusEl = document.getElementById('verify-status');
+        const verifyBtn = document.getElementById('btn-verify-cc');
+        async function verifyOnce() {
+          statusEl.innerHTML = '<span class="opacity-70">Checking...</span>';
+          try {
+            const r = await fetch(`/api/setup/cc/check?name=${encodeURIComponent(developerName)}`).then((x) => x.json());
+            if (r.exists) {
+              statusEl.innerHTML = `<span class="text-sf-success">&#10003; ContactCenter found (Id=${r.id})</span>`;
+              state.callCenterApiName = developerName;
+              document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
+              verifyBtn.disabled = true;
+              verifyBtn.classList.add('opacity-50', 'pointer-events-none');
+              return true;
+            }
+            statusEl.innerHTML = '<span class="text-sf-error">&#10007; Not found yet. Complete the Import steps above, then click Verify.</span>';
+            return false;
+          } catch (err) {
+            statusEl.innerHTML = `<span class="text-sf-error">Verify failed: ${err.message}</span>`;
+            return false;
+          }
+        }
+        verifyBtn.addEventListener('click', verifyOnce);
+        // Initial silent check — skips the Import step if the CC was
+        // already imported in a prior run.
+        verifyOnce();
+      }
+
       document.getElementById('btn-deploy').addEventListener('click', async () => {
         if (!state.serviceEndpoint) {
           alert('Endpoint not ready yet. Accept the cert / set up ngrok, then retry.');
@@ -371,38 +440,29 @@ function renderStep() {
         const developerName = document.getElementById('cc-dev-name').value.trim();
         const masterLabel = document.getElementById('cc-label').value.trim();
 
-        const check = await fetch(`/api/setup/cc/check?name=${encodeURIComponent(developerName)}`).then((x) => x.json());
-        if (check.exists) {
-          if (!confirm(`Contact Center "${developerName}" already exists (Id=${check.id}). Overwrite?`)) return;
-        }
-
         const deployBtn = document.getElementById('btn-deploy');
         deployBtn.disabled = true;
         deployBtn.classList.add('opacity-50', 'pointer-events-none');
 
         const logPanel = createLogPanel('deploy-log');
-        let succeeded = false;
+        let deployedOk = false;
         try {
           await streamSse('/api/setup/cc/deploy', { serviceEndpoint, developerName, masterLabel }, (event, data) => {
             if (event === 'log') logPanel.append(data.line || data.message, data.level);
             else if (event === 'done') {
               logPanel.attachFile(data.runId);
               if (data.success) {
-                succeeded = true;
-                state.callCenterApiName = data.callCenterApiName;
-                document.getElementById('btn-cc-next').classList.remove('opacity-30', 'pointer-events-none');
+                deployedOk = true;
+                renderImportPanel(data.callCenterApiName, data.masterLabel || masterLabel);
               }
             }
           });
         } catch (err) {
-          // streamSse itself threw (network, fetch reject, body null).
-          // Show the error in the log and let finally re-enable the button.
           logPanel.append(`streamSse failed: ${err.message}`, 'error');
         } finally {
-          // Unconditionally re-enable the button unless the deploy
-          // succeeded — on failure (from any path, including
-          // mid-stream errors) the user must be able to retry.
-          if (!succeeded) {
+          // Re-enable Deploy only on failure; on success the admin's
+          // next action is the Import flow, not a re-deploy.
+          if (!deployedOk) {
             deployBtn.disabled = false;
             deployBtn.classList.remove('opacity-50', 'pointer-events-none');
           }
