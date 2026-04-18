@@ -19,7 +19,7 @@
         <items>
             <label>Conversation Vendor Info Developer Name</label>
             <name>reqVendorInfoApiName</name>
-            <value>VoxCanvas</value>
+            <value>c__VoxCanvas</value>
         </items>
         <label>General Information</label>
         <name>reqGeneralInfo</name>
